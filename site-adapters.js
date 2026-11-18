@@ -840,12 +840,20 @@ const PLACE_BET_JS = `
       expandedSlipClass: expandedPre ? expandedPre.className : null
     });
 
-    if (slipBar && isVis(slipBar) && !collapsedPre) {
-      if (!expandedPre) {
-        logTrace('Initial: slipBar visible & not expanded -> clicking slipBar to expand');
-        try { slipBar.click(); } catch (_) {}
-        await wait(100);
+    try {
+      if (slipBar && isVis(slipBar) && !collapsedPre) {
+        if (!expandedPre) {
+          const t0 = Date.now();
+          logTrace('Initial: slipBar visible & not expanded -> clicking slipBar to expand');
+          try { slipBar.click(); } catch (_) {}
+          await wait(100);
+          logTrace('Initial expand wait completed in ' + (Date.now() - t0) + 'ms');
+        } else {
+          logTrace('Initial: betslip already expanded -> no-op to prevent accidental re-collapse');
+        }
       }
+    } catch (err) {
+      logTrace('[PlaceBet:Error] Initial expand in PLACE_BET_JS threw:', String(err));
     }
 
     for (let pAttempt = 0; pAttempt < 350; pAttempt++) {
@@ -860,8 +868,16 @@ const PLACE_BET_JS = `
         initialBtn = collapsedBtn;
       } else {
         if (pAttempt % 20 === 0 && slipBar && isVis(slipBar)) {
-          logTrace('pAttempt ' + pAttempt + ': Periodic slipBar click to keep open');
-          try { slipBar.click(); } catch (_) {}
+          // Guard: only click slipBar if betslip is NOT already expanded (prevents re-collapsing)
+          const isCurrentlyExpanded = !!Array.from(document.querySelectorAll('.m-betslip, .m-bet-slip, [class*="betslip" i], [class*="bet-slip" i]')).find(el => {
+            if (el === slipBar || slipBar?.contains(el)) return false;
+            const cls = String(el.className || '');
+            return !/(bar|entry|icon|badge|count)/i.test(cls) && isVis(el);
+          });
+          if (!isCurrentlyExpanded) {
+            logTrace('pAttempt ' + pAttempt + ': Periodic slipBar click to expand');
+            try { slipBar.click(); } catch (_) {}
+          }
         }
         if (isFootball) {
           const sheet = Array.from(document.querySelectorAll('[data-op="betslip-bottom-sheet"]')).find(isVis);
@@ -1697,19 +1713,33 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
       return null;
     };
 
-    const ensureBetslipExpanded = () => {
-      if (findPlaceBetBtn()) return;
-      const slipBar = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
-      if (slipBar && isVis(slipBar)) {
+    const isBetslipExpanded = () => {
+      try {
+        const slipBar = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
         const expandedSlip = Array.from(document.querySelectorAll('.m-betslip, .m-bet-slip, [class*="betslip" i], [class*="bet-slip" i]')).find(el => {
-          if (el === slipBar || slipBar.contains(el)) return false;
+          if (el === slipBar || slipBar?.contains(el)) return false;
           const cls = String(el.className || '');
           return !/(bar|entry|icon|badge|count)/i.test(cls) && isVis(el);
         });
-        if (!expandedSlip) {
-          try { slipBar.click(); } catch (_) {}
-        }
+        return !!expandedSlip;
+      } catch (err) {
+        logTrace('[PlaceBet:Error] isBetslipExpanded error:', String(err));
+        return false;
       }
+    };
+
+    const ensureBetslipExpanded = () => {
+      try {
+        if (findPlaceBetBtn() || isBetslipExpanded()) return false;
+        const slipBar = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
+        if (slipBar && isVis(slipBar)) {
+          slipBar.click();
+          return true;
+        }
+      } catch (err) {
+        logTrace('[PlaceBet:Error] ensureBetslipExpanded error:', String(err));
+      }
+      return false;
     };
 
     const findPlaceBetBtn = () => {
@@ -2028,8 +2058,39 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
     // STEP 1: Wait for Place Bet button to be rendered and enabled
     // ─────────────────────────────────────────────────────────────────────────────
     let placeBtn = null;
-    const slipBarCycle = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
-    logTrace('Cycle Step 1 Start. slipBar visible:', isVis(slipBarCycle));
+    let immediateExpandTriggered = false;
+    let immediateExpandSucceeded = false;
+
+    try {
+      const slipBarCycle = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
+      const alreadyExpanded = isBetslipExpanded();
+      const existingBtn = findPlaceBetBtn();
+      logTrace('Cycle Step 1 Start. slipBar visible:', isVis(slipBarCycle), 'alreadyExpanded:', alreadyExpanded, 'existingBtn:', !!existingBtn);
+
+      // FIX 1: Fire immediate expand the instant a collapsed slipBar is detected
+      if (slipBarCycle && isVis(slipBarCycle) && !alreadyExpanded && !existingBtn) {
+        const t0 = Date.now();
+        logTrace('Triggering immediate expand on collapsed slipBar at t=0...');
+        immediateExpandTriggered = true;
+        ensureBetslipExpanded();
+        // Guard: short timeout (up to 60ms) to verify expansion succeeded before loop begins
+        for (let w = 0; w < 12; w++) {
+          await wait(5);
+          if (isBetslipExpanded() || findPlaceBetBtn()) {
+            immediateExpandSucceeded = true;
+            logTrace('Immediate expand succeeded in ' + (Date.now() - t0) + 'ms');
+            break;
+          }
+        }
+        if (!immediateExpandSucceeded) {
+          logTrace('Immediate expand did not register within 60ms; fallback safety net will engage at pWait===125');
+        }
+      } else if (alreadyExpanded) {
+        logTrace('Betslip already expanded -> no-op to prevent accidental re-collapse');
+      }
+    } catch (err) {
+      logTrace('[PlaceBet:Error] Immediate expand block threw:', String(err));
+    }
 
     for (let pWait = 0; pWait < 1500; pWait++) {
       if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
@@ -2046,10 +2107,14 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
         return { insufficientBalance: true, error: noBal.msg, traceLogs };
       }
 
-      // Only attempt expanding if missing for a long time (>250ms), NEVER periodic clicks that collapse
-      if (pWait === 125) {
-        logTrace('pWait 125: ensureBetslipExpanded() invoked');
-        ensureBetslipExpanded();
+      // Safety net fallback: if immediate expand failed or was not triggered, original pWait === 125 fires
+      if (pWait === 125 && !immediateExpandSucceeded) {
+        try {
+          logTrace('pWait 125: Fallback safety net ensureBetslipExpanded() invoked');
+          ensureBetslipExpanded();
+        } catch (err) {
+          logTrace('[PlaceBet:Error] Fallback ensureBetslipExpanded failed:', String(err));
+        }
       }
 
       placeBtn = findPlaceBetBtn();
