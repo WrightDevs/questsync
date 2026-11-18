@@ -288,7 +288,7 @@ async function main() {
       '--title',
       `QuestSync ${versionTag}`,
       '--notes',
-      `Release ${versionTag}`,
+      `Release ${versionTag}: Fix bet placement from collapsed fast-betslip card and instant confirmation`,
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
     if (pubRes.status === 0) {
