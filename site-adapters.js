@@ -1003,55 +1003,136 @@ const PLACE_BET_JS = `
     // Step 2: Continuous polling loop to detect and click Confirm immediately (up to 4.0s)
     let confirmedHit = null;
     let confirmCoords = null;
+    let step2Observer = null;
     logTrace('Starting Step 2 (confirm/success detection)...');
 
-    for (let attempt = 0; attempt < 350; attempt++) {
-      // Check if success card or rebet button already appeared (instant bet placement)
-      const successModal = Array.from(document.querySelectorAll(
-        '[data-op="betslip-success-rebet"], [data-op="betslip-success"], .m-betslip-success, .m-success-box, [class*="betslip-success" i]'
-      )).find(isVis);
-      if (successModal) {
-        logTrace('Step 2: Instant Success screen detected on attempt ' + attempt);
-        return {
-          placed: true,
-          confirmed: true,
-          placeX: placeCoords?.x,
-          placeY: placeCoords?.y,
-          singleClickSuccess: true,
-          label: 'Success Screen',
-          traceLogs
-        };
+    // 1. Instant check on attempt 0 (0ms)
+    const instantCheck = findConfirmCandidate(initialBtn);
+    if (instantCheck) {
+      logTrace('Step 2: Instant confirm candidate found at t=0:', norm(instantCheck));
+      confirmCoords = triggerClick(instantCheck);
+      confirmedHit = instantCheck;
+      for (let sub = 0; sub < 15; sub++) {
+        await wait(5);
+        const nextHit = findConfirmCandidate(instantCheck);
+        if (nextHit && nextHit !== instantCheck) {
+          logTrace('Step 2: Secondary confirm found on sub-attempt ' + sub + ':', norm(nextHit));
+          confirmCoords = triggerClick(nextHit);
+          confirmedHit = nextHit;
+          break;
+        }
       }
+      return {
+        placed: true,
+        confirmed: true,
+        placeX: placeCoords?.x,
+        placeY: placeCoords?.y,
+        confirmX: confirmCoords?.x,
+        confirmY: confirmCoords?.y,
+        label: norm(confirmedHit),
+        traceLogs
+      };
+    }
 
-      const hit = findConfirmCandidate(initialBtn);
-      if (hit) {
-        logTrace('Step 2: Found confirm candidate on attempt ' + attempt + ':', norm(hit));
-        confirmCoords = triggerClick(hit);
-        confirmedHit = hit;
-
-        // Check if secondary confirm appears (e.g. odds change modal -> then payment modal)
-        for (let sub = 0; sub < 15; sub++) {
-          await wait(10);
-          const nextHit = findConfirmCandidate(hit);
-          if (nextHit && nextHit !== hit) {
-            logTrace('Step 2: Secondary confirm found on sub-attempt ' + sub + ':', norm(nextHit));
-            confirmCoords = triggerClick(nextHit);
-            confirmedHit = nextHit;
-            break;
+    // 2. Microtask MutationObserver for zero-paint confirmation
+    try {
+      step2Observer = new MutationObserver(() => {
+        if (!confirmedHit) {
+          const hit = findConfirmCandidate(initialBtn);
+          if (hit) {
+            logTrace('Step 2: MutationObserver caught confirm candidate in microtask:', norm(hit));
+            confirmCoords = triggerClick(hit);
+            confirmedHit = hit;
           }
         }
-        return {
-          placed: true,
-          confirmed: true,
-          placeX: placeCoords?.x,
-          placeY: placeCoords?.y,
-          confirmX: confirmCoords?.x,
-          confirmY: confirmCoords?.y,
-          label: norm(confirmedHit),
-          traceLogs
-        };
+      });
+      if (document.documentElement) {
+        step2Observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['class', 'style', 'data-op']
+        });
       }
-      await wait(6);
+    } catch (_) {}
+
+    try {
+      for (let attempt = 0; attempt < 350; attempt++) {
+        if (confirmedHit) {
+          logTrace('Step 2: confirmedHit registered via observer on attempt ' + attempt);
+          for (let sub = 0; sub < 15; sub++) {
+            await wait(5);
+            const nextHit = findConfirmCandidate(confirmedHit);
+            if (nextHit && nextHit !== confirmedHit) {
+              logTrace('Step 2: Secondary confirm found on sub-attempt ' + sub + ':', norm(nextHit));
+              confirmCoords = triggerClick(nextHit);
+              confirmedHit = nextHit;
+              break;
+            }
+          }
+          return {
+            placed: true,
+            confirmed: true,
+            placeX: placeCoords?.x,
+            placeY: placeCoords?.y,
+            confirmX: confirmCoords?.x,
+            confirmY: confirmCoords?.y,
+            label: norm(confirmedHit),
+            traceLogs
+          };
+        }
+
+        // Check if success card or rebet button already appeared (instant bet placement)
+        const successModal = Array.from(document.querySelectorAll(
+          '[data-op="betslip-success-rebet"], [data-op="betslip-success"], .m-betslip-success, .m-success-box, [class*="betslip-success" i]'
+        )).find(isVis);
+        if (successModal) {
+          logTrace('Step 2: Instant Success screen detected on attempt ' + attempt);
+          return {
+            placed: true,
+            confirmed: true,
+            placeX: placeCoords?.x,
+            placeY: placeCoords?.y,
+            singleClickSuccess: true,
+            label: 'Success Screen',
+            traceLogs
+          };
+        }
+
+        const hit = findConfirmCandidate(initialBtn);
+        if (hit) {
+          logTrace('Step 2: Found confirm candidate on attempt ' + attempt + ':', norm(hit));
+          confirmCoords = triggerClick(hit);
+          confirmedHit = hit;
+
+          // Check if secondary confirm appears (e.g. odds change modal -> then payment modal)
+          for (let sub = 0; sub < 15; sub++) {
+            await wait(10);
+            const nextHit = findConfirmCandidate(hit);
+            if (nextHit && nextHit !== hit) {
+              logTrace('Step 2: Secondary confirm found on sub-attempt ' + sub + ':', norm(nextHit));
+              confirmCoords = triggerClick(nextHit);
+              confirmedHit = nextHit;
+              break;
+            }
+          }
+          return {
+            placed: true,
+            confirmed: true,
+            placeX: placeCoords?.x,
+            placeY: placeCoords?.y,
+            confirmX: confirmCoords?.x,
+            confirmY: confirmCoords?.y,
+            label: norm(confirmedHit),
+            traceLogs
+          };
+        }
+        await wait(6);
+      }
+    } finally {
+      if (step2Observer) {
+        try { step2Observer.disconnect(); } catch (_) {}
+      }
     }
 
     const openDialogs = Array.from(document.querySelectorAll('.es-dialog, .m-dialog, .af-dialog, [role="dialog"], [class*="modal" i]')).filter(isVis).map(d => ({
@@ -2260,35 +2341,82 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
     // STEP 2: Wait for Confirm button or direct Success screen
     // ─────────────────────────────────────────────────────────────────────────────
     let confirmed = false;
+    let cycleStep2Obs = null;
     logTrace('Cycle Step 2: Waiting for confirm or success screen...');
-    for (let cWait = 0; cWait < 1500; cWait++) {
-      if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
 
-      if (isSuccessModalOpen() || tryFindRebet()) {
-        logTrace('Cycle Step 2: Success modal / Rebet found immediately on cWait ' + cWait);
+    // 1. Instant check at t=0
+    if (isSuccessModalOpen() || tryFindRebet()) {
+      logTrace('Cycle Step 2: Success modal / Rebet found immediately at t=0');
+      confirmed = true;
+    } else {
+      const instantConfirm = findConfirmCandidate(placeBtn);
+      if (instantConfirm) {
+        logTrace('Cycle Step 2: Instant confirm found at t=0:', norm(instantConfirm));
+        triggerClick(instantConfirm);
         confirmed = true;
-        break;
       }
+    }
 
-      const confirmBtn = findConfirmCandidate(placeBtn);
-      if (confirmBtn) {
-        logTrace('Cycle Step 2: Confirm candidate found on cWait ' + cWait + ':', norm(confirmBtn));
-        triggerClick(confirmBtn);
-        confirmed = true;
-
-        // Check secondary confirm (e.g. odds change prompt)
-        for (let sub = 0; sub < 20; sub++) {
-          await wait(5);
-          const nextC = findConfirmCandidate(confirmBtn);
-          if (nextC && nextC !== confirmBtn) {
-            logTrace('Cycle Step 2: Secondary confirm found on sub-attempt ' + sub + ':', norm(nextC));
-            triggerClick(nextC);
-            break;
+    if (!confirmed) {
+      try {
+        cycleStep2Obs = new MutationObserver(() => {
+          if (!confirmed) {
+            if (isSuccessModalOpen() || tryFindRebet()) {
+              confirmed = true;
+            } else {
+              const hit = findConfirmCandidate(placeBtn);
+              if (hit) {
+                logTrace('Cycle Step 2: MutationObserver caught confirm in microtask:', norm(hit));
+                triggerClick(hit);
+                confirmed = true;
+              }
+            }
           }
+        });
+        if (document.documentElement) {
+          cycleStep2Obs.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'style', 'data-op']
+          });
         }
-        break;
+      } catch (_) {}
+    }
+
+    try {
+      for (let cWait = 0; cWait < 1500; cWait++) {
+        if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
+
+        if (confirmed || isSuccessModalOpen() || tryFindRebet()) {
+          confirmed = true;
+          break;
+        }
+
+        const confirmBtn = findConfirmCandidate(placeBtn);
+        if (confirmBtn) {
+          logTrace('Cycle Step 2: Confirm candidate found on cWait ' + cWait + ':', norm(confirmBtn));
+          triggerClick(confirmBtn);
+          confirmed = true;
+
+          // Check secondary confirm (e.g. odds change prompt)
+          for (let sub = 0; sub < 20; sub++) {
+            await wait(5);
+            const nextC = findConfirmCandidate(confirmBtn);
+            if (nextC && nextC !== confirmBtn) {
+              logTrace('Cycle Step 2: Secondary confirm found on sub-attempt ' + sub + ':', norm(nextC));
+              triggerClick(nextC);
+              break;
+            }
+          }
+          break;
+        }
+        await wait(2);
       }
-      await wait(2);
+    } finally {
+      if (cycleStep2Obs) {
+        try { cycleStep2Obs.disconnect(); } catch (_) {}
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

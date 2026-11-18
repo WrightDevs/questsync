@@ -154,7 +154,14 @@ function isElementVisible(el) {
   const r = el.getBoundingClientRect();
   if (r.width <= 0 || r.height <= 0) return false;
   const st = getComputedStyle(el);
-  return st.display !== 'none' && st.visibility !== 'hidden' && st.opacity !== '0';
+  if (st.display === 'none' || st.visibility === 'hidden') return false;
+  try {
+    // If element is a visually suppressed confirm target, permit it so automation can click it
+    if (el.matches && el.matches('[data-op*="confirm" i], .flexibet-confirm, [class*="confirm" i], button:has([data-cms-key="confirm"]), [data-cms-key="confirm"]')) {
+      return true;
+    }
+  } catch (_) {}
+  return st.opacity !== '0';
 }
 
 function normText(s) {
@@ -891,23 +898,145 @@ function triggerElementAction(el) {
   try { el.click(); } catch (_) {}
 }
 
+function injectConfirmSuppressionStyles() {
+  try {
+    const styleId = '__mfas_confirm_suppress_styles';
+    if (document.getElementById(styleId)) return;
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      /* Suppress SportyBet confirmation buttons & confirmation drawers from visually displaying */
+      button[data-op="betslip-confirm"],
+      [data-op="betslip-confirm"],
+      button.flexibet-confirm,
+      .flexibet-confirm,
+      [data-op="betslip-confirm-wrap"],
+      [data-op="betslip-confirm-to-pay-btn"],
+      [data-op="confirm-to-pay-modal"],
+      [data-op="confirm-to-pay-btn"],
+      button:has([data-cms-key="confirm"]),
+      [data-cms-key="confirm"],
+      .m-fast-betslip [data-op*="confirm" i],
+      .m-betslip [data-op*="confirm" i],
+      .m-dialog:has([data-op*="confirm" i]),
+      .drawer:has([data-op*="confirm" i]),
+      [role="dialog"]:has([data-op*="confirm" i]),
+      .m-pop-box:has([data-op*="confirm" i]) {
+        opacity: 0 !important;
+        pointer-events: auto !important;
+        transition: none !important;
+        animation: none !important;
+      }
+      .m-mask:has(~ .m-dialog [data-op*="confirm" i]),
+      .m-dialog-mask:has(~ .m-dialog [data-op*="confirm" i]) {
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+    `;
+    const target = document.head || document.documentElement;
+    if (target) target.appendChild(style);
+  } catch (_) {}
+}
+
+if (typeof document !== 'undefined') {
+  injectConfirmSuppressionStyles();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectConfirmSuppressionStyles);
+  }
+}
+
+function findConfirmCandidateInView() {
+  try {
+    const candidates = Array.from(document.querySelectorAll(
+      'button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-wrap"] [data-op="betslip-confirm"], [data-op="betslip-confirm-to-pay-btn"], [data-op="confirm-to-pay-btn"], button:has([data-cms-key="confirm"]), [data-cms-key="confirm"]'
+    ));
+    for (const b of candidates) {
+      if (!b) continue;
+      const r = b.getBoundingClientRect();
+      if (r.width < 5 || r.height < 5) continue;
+      const t = String(b.innerText || b.textContent || '').trim().toLowerCase();
+      if (/deposit|recharge|top[\s-]?up/i.test(t)) continue;
+      return b;
+    }
+
+    const modals = Array.from(document.querySelectorAll('.es-dialog, .m-dialog, .af-dialog, .m-pop-box, .m-pop, .m-modal, [role="dialog"], [class*="dialog" i], [class*="modal" i]'));
+    for (const m of modals) {
+      const txt = String(m.innerText || m.textContent || '').trim().toLowerCase();
+      if (/insufficient|deposit|low\s*balance/i.test(txt)) continue;
+      const mBtns = Array.from(m.querySelectorAll('button, [role="button"], .m-btn, [class*="btn" i], [class*="confirm" i], [class*="pay" i]'));
+      for (const mb of mBtns) {
+        const r = mb.getBoundingClientRect();
+        if (r.width < 5 || r.height < 5) continue;
+        const bt = String(mb.innerText || mb.textContent || '').trim().toLowerCase();
+        if (/deposit|recharge|top[\s-]?up|cancel|close/i.test(bt)) continue;
+        if (/\b(confirm|pay|accept|agree|proceed|submit)\b/i.test(bt)) return mb;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 let activeConfirmPoll = null;
+let activeConfirmObs = null;
 function wireBetslipAutoConfirm(triggerEl) {
   const isAccept = /accept\s*changes?|save\s*changes?|^accept$/i.test(
     String(triggerEl?.innerText || triggerEl?.textContent || '').trim()
   );
 
   clearInterval(activeConfirmPoll);
+  if (activeConfirmObs) {
+    try { activeConfirmObs.disconnect(); } catch (_) {}
+    activeConfirmObs = null;
+  }
+
+  const doConfirm = (btn) => {
+    clearInterval(activeConfirmPoll);
+    activeConfirmPoll = null;
+    if (activeConfirmObs) {
+      try { activeConfirmObs.disconnect(); } catch (_) {}
+      activeConfirmObs = null;
+    }
+    triggerElementAction(btn);
+  };
+
+  // 1. Immediate microsecond check (0ms)
+  const immediate = findConfirmCandidateInView();
+  if (immediate) {
+    doConfirm(immediate);
+    return;
+  }
+
+  // 2. Instant MutationObserver (fires in microtask before browser paints frame)
+  try {
+    activeConfirmObs = new MutationObserver(() => {
+      const hit = findConfirmCandidateInView();
+      if (hit) doConfirm(hit);
+    });
+    if (document.documentElement) {
+      activeConfirmObs.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-op']
+      });
+    }
+  } catch (_) {}
+
+  // 3. Fallback polling loop (safety net)
   let waited = 0;
   activeConfirmPoll = setInterval(() => {
-    waited += 25;
+    waited += 10;
     if (waited > 3500) {
       clearInterval(activeConfirmPoll);
       activeConfirmPoll = null;
+      if (activeConfirmObs) {
+        try { activeConfirmObs.disconnect(); } catch (_) {}
+        activeConfirmObs = null;
+      }
       return;
     }
 
-    // 1. If it was "Accept Changes", look for the button to transition to "Place Bet" and click it
+    // If it was "Accept Changes", look for the button to transition to "Place Bet" and click it
     if (isAccept) {
       const placeEl = Array.from(document.querySelectorAll(
         '.place-bet, [class*="place-bet" i], [data-op="single-placebet"], [data-op="single-placebet-text"], [data-op="betslip-placebet"]'
@@ -920,17 +1049,11 @@ function wireBetslipAutoConfirm(triggerEl) {
       }
     }
 
-    // 2. Look for Confirm button (TransitionConfirm, dialogs, flexibet-confirm, etc.)
-    const confirmBtn = Array.from(document.querySelectorAll(
-      'button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-wrap"] [data-op="betslip-confirm"], [data-op="betslip-confirm-to-pay-btn"]'
-    )).find(isElementVisible);
-
+    const confirmBtn = findConfirmCandidateInView();
     if (confirmBtn) {
-      clearInterval(activeConfirmPoll);
-      activeConfirmPoll = null;
-      triggerElementAction(confirmBtn);
+      doConfirm(confirmBtn);
     }
-  }, 25);
+  }, 10);
 }
 
 document.addEventListener('click', (e) => {
