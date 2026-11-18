@@ -808,21 +808,19 @@ const PLACE_BET_JS = `
     let placeCoords = null;
     const isFootball = /football\.com/i.test(location.hostname || '');
 
-    // ARM: MutationObserver clicks confirm the instant it mounts in DOM — no expand required, fires before paint
-    let pbMutConfirmClicked = false;
-    let pbLastMutConfirm = null;
-    const pbConfirmObs = new MutationObserver(() => {
-      const btn = document.querySelector(
-        'button[data-op="betslip-confirm"], [data-op="betslip-confirm-to-pay-btn"], ' +
-        'button.flexibet-confirm, .flexibet-confirm, [data-cms-key="confirm"]'
-      );
-      if (btn && btn !== pbLastMutConfirm && isVis(btn) && !isDepositElement(btn)) {
-        pbLastMutConfirm = btn;
-        pbMutConfirmClicked = true;
-        triggerClick(btn);
+    // Auto-expand betslip if collapsed/minimized into floating bar ONLY if collapsed button not already present
+    const slipBar = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
+    if (slipBar && isVis(slipBar) && !findCollapsedPlaceBtn()) {
+      const expandedSlip = Array.from(document.querySelectorAll('.m-betslip, .m-bet-slip, [class*="betslip" i], [class*="bet-slip" i]')).find(el => {
+        if (el === slipBar || slipBar.contains(el)) return false;
+        const cls = String(el.className || '');
+        return !/(bar|entry|icon|badge|count)/i.test(cls) && isVis(el);
+      });
+      if (!expandedSlip) {
+        try { slipBar.click(); } catch (_) {}
+        await wait(100);
       }
-    });
-    pbConfirmObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-op', 'aria-hidden'] });
+    }
 
     for (let pAttempt = 0; pAttempt < 350; pAttempt++) {
       // 0. Collapsed fast betslip button first (direct submission without requiring expansion)
@@ -833,6 +831,9 @@ const PLACE_BET_JS = `
         }
         initialBtn = collapsedBtn;
       } else {
+        if (pAttempt % 20 === 0 && slipBar && isVis(slipBar)) {
+          try { slipBar.click(); } catch (_) {}
+        }
         if (isFootball) {
           const sheet = Array.from(document.querySelectorAll('[data-op="betslip-bottom-sheet"]')).find(isVis);
           const fast = Array.from(document.querySelectorAll('[data-op="fast-betslip-container"]')).find(isVis);
@@ -901,7 +902,6 @@ const PLACE_BET_JS = `
     }
 
     if (!initialBtn) {
-      pbConfirmObs.disconnect();
       const lockedAfter = checkOddsLocked();
       if (lockedAfter) return { placed: false, confirmed: false, ...lockedAfter };
       const preConfirm = findConfirmCandidate(null);
@@ -912,24 +912,16 @@ const PLACE_BET_JS = `
       return { placed: false, confirmed: false };
     }
 
-    // Step 2: Confirm — observer already clicked it synchronously when it mounted; fallback polls 2s
-    // Observer fires before browser paints, so user never sees the confirm button appear
+    // Step 2: Continuous polling loop to detect and click Confirm immediately (up to 4.0s)
     let confirmedHit = null;
     let confirmCoords = null;
 
     for (let attempt = 0; attempt < 350; attempt++) {
-      // Observer already handled it in the same DOM-mutation microtask as the button mounting
-      if (pbMutConfirmClicked) {
-        confirmedHit = pbLastMutConfirm;
-        break;
-      }
-
-      // Check if success card or rebet button already appeared (single-click-to-success flow)
+      // Check if success card or rebet button already appeared (instant bet placement)
       const successModal = Array.from(document.querySelectorAll(
         '[data-op="betslip-success-rebet"], [data-op="betslip-success"], .m-betslip-success, .m-success-box, [class*="betslip-success" i]'
       )).find(isVis);
       if (successModal) {
-        pbConfirmObs.disconnect();
         return {
           placed: true,
           confirmed: true,
@@ -940,25 +932,39 @@ const PLACE_BET_JS = `
         };
       }
 
-      // Fallback: confirm was in DOM before observer armed (edge case)
       const hit = findConfirmCandidate(initialBtn);
       if (hit) {
         confirmCoords = triggerClick(hit);
         confirmedHit = hit;
-        break;
+
+        // Check if secondary confirm appears (e.g. odds change modal -> then payment modal)
+        for (let sub = 0; sub < 15; sub++) {
+          await wait(10);
+          const nextHit = findConfirmCandidate(hit);
+          if (nextHit && nextHit !== hit) {
+            confirmCoords = triggerClick(nextHit);
+            confirmedHit = nextHit;
+            break;
+          }
+        }
+        return {
+          placed: true,
+          confirmed: true,
+          placeX: placeCoords?.x,
+          placeY: placeCoords?.y,
+          confirmX: confirmCoords?.x,
+          confirmY: confirmCoords?.y,
+          label: norm(confirmedHit)
+        };
       }
       await wait(6);
     }
-    pbConfirmObs.disconnect();
 
     return {
       placed: true,
-      confirmed: !!confirmedHit || pbMutConfirmClicked,
+      confirmed: false,
       placeX: placeCoords?.x,
-      placeY: placeCoords?.y,
-      confirmX: confirmCoords?.x,
-      confirmY: confirmCoords?.y,
-      label: confirmedHit ? norm(confirmedHit) : (pbLastMutConfirm ? norm(pbLastMutConfirm) : undefined)
+      placeY: placeCoords?.y
     };
   })()
 `;
@@ -1928,6 +1934,9 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
       const noBal = checkInsufficientBalance();
       if (noBal) return { insufficientBalance: true, error: noBal.msg };
 
+      // Only attempt expanding if missing for a long time (>250ms), NEVER periodic clicks that collapse
+      if (pWait === 125) ensureBetslipExpanded();
+
       placeBtn = findPlaceBetBtn();
       if (placeBtn) break;
       await wait(2);
@@ -1943,29 +1952,6 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
 
     // Ensure model is synchronized to visible stake right before clicking
     syncVisibleStakeToModel();
-
-    // ARM MutationObserver: fires synchronously in the same DOM-mutation task as the confirm button mounting.
-    // This means the button is clicked before the browser ever paints it — user sees no confirm step.
-    let mutationConfirmClicked = false;
-    let lastMutConfirm = null;
-    const confirmObs = new MutationObserver(() => {
-      const btn = document.querySelector(
-        'button[data-op="betslip-confirm"], [data-op="betslip-confirm-to-pay-btn"], ' +
-        'button.flexibet-confirm, .flexibet-confirm, [data-cms-key="confirm"], ' +
-        '[data-op="betslip-confirm-wrap"] button'
-      );
-      if (btn && btn !== lastMutConfirm && isVis(btn) && !isDepositElement(btn)) {
-        lastMutConfirm = btn;
-        mutationConfirmClicked = true;
-        triggerClick(btn);
-        // Handle chained second confirm mounting in the same flush (e.g. odds-change → pay)
-        const next = document.querySelector(
-          'button[data-op="betslip-confirm"], [data-op="betslip-confirm-to-pay-btn"], button.flexibet-confirm'
-        );
-        if (next && next !== btn && isVis(next) && !isDepositElement(next)) triggerClick(next);
-      }
-    });
-    confirmObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-op', 'aria-hidden'] });
 
     // Click Place Bet!
     const initialTxt = norm(placeBtn);
@@ -1986,28 +1972,35 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // STEP 2: Confirm — observer handles it pre-paint; fallback poll covers edge cases
+    // STEP 2: Wait for Confirm button or direct Success screen
     // ─────────────────────────────────────────────────────────────────────────────
     let confirmed = false;
-    for (let cWait = 0; cWait < 750; cWait++) {
-      if (window.__mfas_auto_rebet_stop) { confirmObs.disconnect(); return { aborted: true }; }
+    for (let cWait = 0; cWait < 1500; cWait++) {
+      if (window.__mfas_auto_rebet_stop) return { aborted: true };
 
-      // Observer already clicked confirm in the same microtask as DOM insertion
-      if (mutationConfirmClicked || isSuccessModalOpen() || tryFindRebet()) {
+      if (isSuccessModalOpen() || tryFindRebet()) {
         confirmed = true;
         break;
       }
 
-      // Fallback: confirm was already in DOM before observer armed (pre-rendered edge case)
       const confirmBtn = findConfirmCandidate(placeBtn);
       if (confirmBtn) {
         triggerClick(confirmBtn);
         confirmed = true;
+
+        // Check secondary confirm (e.g. odds change prompt)
+        for (let sub = 0; sub < 20; sub++) {
+          await wait(5);
+          const nextC = findConfirmCandidate(confirmBtn);
+          if (nextC && nextC !== confirmBtn) {
+            triggerClick(nextC);
+            break;
+          }
+        }
         break;
       }
       await wait(2);
     }
-    confirmObs.disconnect();
 
     // ─────────────────────────────────────────────────────────────────────────────
     // STEP 3: Wait for "Bet Successful" modal & Click "Rebet"

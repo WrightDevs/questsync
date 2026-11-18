@@ -2777,15 +2777,19 @@ async function triggerPlaceBet(sourceLabel = 'UI') {
     })
   );
 
-  // Unconditional confirm sweep — catches any confirm that PLACE_BET_JS returned before it rendered
-  await sleep(60);
+  // Fast follow-up sweep only if any pane has an open dialog/modal (e.g. odds change confirmation)
   await Promise.all(
     views.map(async (v, i) => {
       if (!viewReady(v)) return;
       try {
-        const sweep = await v.webContents.executeJavaScript(CLICK_ANY_CONFIRM_JS).catch(() => null);
-        if (sweep && sweep.clicked) {
-          console.log(`[PlaceBet] Pane ${i + 1}: Confirm swept ("${sweep.label || ''}")`);
+        const hasOpenDialog = await v.webContents.executeJavaScript(`(() => {
+          return !!document.querySelector('.es-dialog, .m-dialog, .af-dialog, [role="dialog"]');
+        })()`).catch(() => false);
+        if (hasOpenDialog) {
+          const sweep = await v.webContents.executeJavaScript(CLICK_ANY_CONFIRM_JS);
+          if (sweep && sweep.clicked) {
+            console.log(`[PlaceBet] Pane ${i + 1}: Secondary confirm clicked ("${sweep.label || ''}")`);
+          }
         }
       } catch (_) { }
     })
