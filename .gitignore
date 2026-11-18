@@ -3,3 +3,4 @@ dist-stage/
 release/
 ui-dist/
 *.log
+.updaterId
