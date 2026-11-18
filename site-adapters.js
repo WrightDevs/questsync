@@ -520,18 +520,23 @@ const PLACE_BET_JS = `
     };
 
     const isDepositElement = (el) => {
-      if (!el) return false;
-      const t = norm(el);
-      if (isPlaceBetText(t) || isConfirmText(t)) return false;
-      if (isNavOrFooter(el)) return true;
-      if (isDepositText(t)) return true;
-      const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
-      if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
-      if (op.includes('pay') && !op.includes('betslip') && !op.includes('confirm') && !op.includes('place')) return true;
-      const href = String(el.getAttribute?.('href') || '').toLowerCase();
-      if (href.includes('deposit') || href.includes('recharge')) return true;
-      const cls = String(el.className || '').toLowerCase();
-      if (cls.includes('deposit')) return true;
+      try {
+        if (!el) return false;
+        const t = norm(el);
+        if (typeof isPlaceBetText === 'function' && isPlaceBetText(t)) return false;
+        if (typeof isConfirmText === 'function' && isConfirmText(t)) return false;
+        if (isNavOrFooter(el)) return true;
+        if (isDepositText(t)) return true;
+        const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
+        if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
+        if (op.includes('pay') && !op.includes('betslip') && !op.includes('confirm') && !op.includes('place')) return true;
+        const href = String(el.getAttribute?.('href') || '').toLowerCase();
+        if (href.includes('deposit') || href.includes('recharge')) return true;
+        const cls = String(el.className || '').toLowerCase();
+        if (cls.includes('deposit')) return true;
+      } catch (err) {
+        logTrace('[PlaceBet:Error] isDepositElement error:', String(err));
+      }
       return false;
     };
 
@@ -1111,18 +1116,22 @@ const CLICK_ANY_CONFIRM_JS = `
     };
 
     const isDepositElement = (el) => {
-      if (!el) return false;
-      const t = norm(el);
-      if (isConfirmText(t)) return false;
-      if (isNavOrFooter(el)) return true;
-      if (isDepositText(t)) return true;
-      const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
-      if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
-      if (op.includes('pay') && !op.includes('betslip') && !op.includes('confirm')) return true;
-      const href = String(el.getAttribute?.('href') || '').toLowerCase();
-      if (href.includes('deposit') || href.includes('recharge')) return true;
-      const cls = String(el.className || '').toLowerCase();
-      if (cls.includes('deposit')) return true;
+      try {
+        if (!el) return false;
+        const t = norm(el);
+        if (typeof isConfirmText === 'function' && isConfirmText(t)) return false;
+        if (isNavOrFooter(el)) return true;
+        if (isDepositText(t)) return true;
+        const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
+        if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
+        if (op.includes('pay') && !op.includes('betslip') && !op.includes('confirm')) return true;
+        const href = String(el.getAttribute?.('href') || '').toLowerCase();
+        if (href.includes('deposit') || href.includes('recharge')) return true;
+        const cls = String(el.className || '').toLowerCase();
+        if (cls.includes('deposit')) return true;
+      } catch (err) {
+        logTrace('[PlaceBet:Error] isDepositElement error:', String(err));
+      }
       return false;
     };
 
@@ -1310,6 +1319,11 @@ const FAST_REBET_CYCLE_JS = (targetStake) => `
       return /\b(deposit|top[\s-]?up|recharge|fund|add\s*funds?|deposit\s*&\s*bet)\b/i.test(t);
     };
 
+    const isRebetText = (t) => {
+      if (!t || t.length > 50 || isDepositText(t)) return false;
+      return /^re-?bet(\s+(now|all|selections?))?$/i.test(t) || t === 'rebet' ||
+        /\b(re-?bet|bet again|keep selections?|repeat bet|duplicate bet|one more)\b/i.test(t);
+    };
 
     const isNavOrFooter = (el) => {
       if (!el) return false;
@@ -1320,18 +1334,22 @@ const FAST_REBET_CYCLE_JS = (targetStake) => `
     };
 
     const isDepositElement = (el) => {
-      if (!el) return false;
-      const t = norm(el);
-      if (isRebetText(t)) return false;
-      if (isNavOrFooter(el)) return true;
-      if (isDepositText(t)) return true;
-      const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
-      if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
-      if (op.includes('pay') && !op.includes('betslip')) return true;
-      const href = String(el.getAttribute?.('href') || '').toLowerCase();
-      if (href.includes('deposit') || href.includes('recharge') || href.includes('pay')) return true;
-      const cls = String(el.className || '').toLowerCase();
-      if (cls.includes('deposit')) return true;
+      try {
+        if (!el) return false;
+        const t = norm(el);
+        if (typeof isRebetText === 'function' && isRebetText(t)) return false;
+        if (isNavOrFooter(el)) return true;
+        if (isDepositText(t)) return true;
+        const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
+        if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
+        if (op.includes('pay') && !op.includes('betslip')) return true;
+        const href = String(el.getAttribute?.('href') || '').toLowerCase();
+        if (href.includes('deposit') || href.includes('recharge') || href.includes('pay')) return true;
+        const cls = String(el.className || '').toLowerCase();
+        if (cls.includes('deposit')) return true;
+      } catch (err) {
+        logTrace('[PlaceBet:Error] isDepositElement error:', String(err));
+      }
       return false;
     };
 
@@ -1584,6 +1602,35 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
       return /\\b(deposit|top[\\s-]?up|recharge|fund|add\\s*funds?|deposit\\s*&\\s*bet)\\b/i.test(t);
     };
 
+    const isPlaceBetText = (t) => {
+      if (!t || isDepositText(t)) return false;
+      return (
+        t.includes('place bet') || t.includes('placebet') ||
+        t.includes('bet now') || t.includes('place a bet') ||
+        t === 'bet' ||
+        t.includes('accept change') || t.includes('accept changes') ||
+        t.includes('save change') || t.includes('save changes') ||
+        t.includes('confirm bet') || t.includes('confirm order') ||
+        t === 'accept'
+      );
+    };
+
+    const isConfirmText = (t) => {
+      if (!t || t.length > 80 || isDepositText(t)) return false;
+      if (/^(cancel|close|back|no|decline|reject|exit|dismiss|×|✕)$/i.test(t)) return false;
+      if (/\\b(cancel|close|keep looking|continue betting)\\b/i.test(t)) return false;
+      if (/\\b(confirm|pay now|accept|agree|proceed|submit)\\b/i.test(t)) return true;
+      if (/\\b(confirm bet|confirm to pay|confirm order|place bet)\\b/i.test(t)) return true;
+      if (/^(ok|yes|continue|next|i understand|got it)$/i.test(t)) return true;
+      if (/^accept\\b/i.test(t) || /^confirm\\b/i.test(t)) return true;
+      return false;
+    };
+
+    const isRebetText = (t) => {
+      if (!t || t.length > 50 || isDepositText(t)) return false;
+      return /^re-?bet(\\s+(now|all|selections?))?$/i.test(t) || t === 'rebet' ||
+        /\\b(re-?bet|bet again|keep selections?|repeat bet|duplicate bet|one more)\\b/i.test(t);
+    };
 
     const isNavOrFooter = (el) => {
       if (!el) return false;
@@ -1594,18 +1641,24 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
     };
 
     const isDepositElement = (el) => {
-      if (!el) return false;
-      const t = norm(el);
-      if (isPlaceBetText(t) || isConfirmText(t) || isRebetText(t)) return false;
-      if (isNavOrFooter(el)) return true;
-      if (isDepositText(t)) return true;
-      const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
-      if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
-      if (op.includes('pay') && !op.includes('betslip') && !op.includes('confirm') && !op.includes('place')) return true;
-      const href = String(el.getAttribute?.('href') || '').toLowerCase();
-      if (href.includes('deposit') || href.includes('recharge')) return true;
-      const cls = String(el.className || '').toLowerCase();
-      if (cls.includes('deposit')) return true;
+      try {
+        if (!el) return false;
+        const t = norm(el);
+        if (typeof isPlaceBetText === 'function' && isPlaceBetText(t)) return false;
+        if (typeof isConfirmText === 'function' && isConfirmText(t)) return false;
+        if (typeof isRebetText === 'function' && isRebetText(t)) return false;
+        if (isNavOrFooter(el)) return true;
+        if (isDepositText(t)) return true;
+        const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
+        if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
+        if (op.includes('pay') && !op.includes('betslip') && !op.includes('confirm') && !op.includes('place')) return true;
+        const href = String(el.getAttribute?.('href') || '').toLowerCase();
+        if (href.includes('deposit') || href.includes('recharge')) return true;
+        const cls = String(el.className || '').toLowerCase();
+        if (cls.includes('deposit')) return true;
+      } catch (err) {
+        logTrace('[PlaceBet:Error] isDepositElement error:', String(err));
+      }
       return false;
     };
 
@@ -2366,18 +2419,22 @@ const REBET_JS = `
     };
 
     const isDepositElement = (el) => {
-      if (!el) return false;
-      const t = norm(el);
-      if (isRebetText(t)) return false;
-      if (isNavOrFooter(el)) return true;
-      if (isDepositText(t)) return true;
-      const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
-      if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
-      if (op.includes('pay') && !op.includes('betslip')) return true;
-      const href = String(el.getAttribute?.('href') || '').toLowerCase();
-      if (href.includes('deposit') || href.includes('recharge') || href.includes('pay')) return true;
-      const cls = String(el.className || '').toLowerCase();
-      if (cls.includes('deposit')) return true;
+      try {
+        if (!el) return false;
+        const t = norm(el);
+        if (typeof isRebetText === 'function' && isRebetText(t)) return false;
+        if (isNavOrFooter(el)) return true;
+        if (isDepositText(t)) return true;
+        const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
+        if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
+        if (op.includes('pay') && !op.includes('betslip')) return true;
+        const href = String(el.getAttribute?.('href') || '').toLowerCase();
+        if (href.includes('deposit') || href.includes('recharge') || href.includes('pay')) return true;
+        const cls = String(el.className || '').toLowerCase();
+        if (cls.includes('deposit')) return true;
+      } catch (err) {
+        logTrace('[PlaceBet:Error] isDepositElement error:', String(err));
+      }
       return false;
     };
 
