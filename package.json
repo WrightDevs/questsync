@@ -1,0 +1,45 @@
+{
+  "name": "questsync",
+  "productName": "QuestSync",
+  "version": "1.0.1",
+  "description": "QuestSync - Multi-Account Synced Betting & Rapid Attack Engine",
+  "repository": "github:WrightDevs/questsync",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:ui": "vite build",
+    "build:dist": "node build-dist.js",
+    "publish:dist": "node build-dist.js --publish"
+  },
+  "build": {
+    "appId": "com.questsync.app",
+    "productName": "QuestSync",
+    "directories": {
+      "buildResources": "build"
+    },
+    "win": {
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "icon": "build/icon.icns"
+    },
+    "linux": {
+      "icon": "build/icons"
+    }
+  },
+  "devDependencies": {
+    "@electron/asar": "^4.3.1",
+    "@vitejs/plugin-react": "^6.3.0",
+    "bytenode": "^2.1.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^26.18.0",
+    "javascript-obfuscator": "^5.10.0",
+    "vite": "^8.3.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11",
+    "lucide-react": "^1.73.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}
