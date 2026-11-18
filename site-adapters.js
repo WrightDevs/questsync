@@ -475,6 +475,13 @@ const PLACE_BET_JS = `
 
     const norm = (el) => String(el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
+    const traceLogs = [];
+    const logTrace = (...args) => {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      try { console.log('[PlaceBet:Trace]', msg); } catch (_) {}
+      traceLogs.push(msg);
+    };
+
     const isDepositText = (t) => {
       if (!t) return false;
       return /\b(deposit|top[\s-]?up|recharge|fund|add\s*funds?|deposit\s*&\s*bet)\b/i.test(t);
@@ -645,6 +652,14 @@ const PLACE_BET_JS = `
       if (target !== btn && !isDepositElement(target)) {
         try { target.click(); } catch (_) {}
       }
+      logTrace('triggerClick dispatched on:', {
+        tagName: btn.tagName,
+        className: btn.className,
+        dataOp: btn.getAttribute?.('data-op'),
+        text: norm(btn),
+        hasSafeTap: !!safeTap,
+        cx, cy
+      });
       return { x: cx, y: cy };
     };
 
@@ -810,13 +825,24 @@ const PLACE_BET_JS = `
 
     // Auto-expand betslip if collapsed/minimized into floating bar ONLY if collapsed button not already present
     const slipBar = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
-    if (slipBar && isVis(slipBar) && !findCollapsedPlaceBtn()) {
-      const expandedSlip = Array.from(document.querySelectorAll('.m-betslip, .m-bet-slip, [class*="betslip" i], [class*="bet-slip" i]')).find(el => {
-        if (el === slipBar || slipBar.contains(el)) return false;
-        const cls = String(el.className || '');
-        return !/(bar|entry|icon|badge|count)/i.test(cls) && isVis(el);
-      });
-      if (!expandedSlip) {
+    const collapsedPre = findCollapsedPlaceBtn();
+    const expandedPre = Array.from(document.querySelectorAll('.m-betslip, .m-bet-slip, [class*="betslip" i], [class*="bet-slip" i]')).find(el => {
+      if (el === slipBar || slipBar?.contains(el)) return false;
+      const cls = String(el.className || '');
+      return !/(bar|entry|icon|badge|count)/i.test(cls) && isVis(el);
+    });
+    logTrace('Initial Betslip Status:', {
+      slipBar: !!slipBar,
+      slipBarVis: isVis(slipBar),
+      collapsedPlaceBtn: !!collapsedPre,
+      collapsedBtnText: collapsedPre ? norm(collapsedPre) : null,
+      expandedSlip: !!expandedPre,
+      expandedSlipClass: expandedPre ? expandedPre.className : null
+    });
+
+    if (slipBar && isVis(slipBar) && !collapsedPre) {
+      if (!expandedPre) {
+        logTrace('Initial: slipBar visible & not expanded -> clicking slipBar to expand');
         try { slipBar.click(); } catch (_) {}
         await wait(100);
       }
@@ -827,11 +853,14 @@ const PLACE_BET_JS = `
       const collapsedBtn = findCollapsedPlaceBtn();
       if (collapsedBtn) {
         if (isDepositElement(collapsedBtn)) {
-          return { placed: false, confirmed: false, error: 'insufficient_balance', msg: 'Place Bet button shows Deposit (balance < stake)' };
+          logTrace('Collapsed place btn found but is deposit:', norm(collapsedBtn));
+          return { placed: false, confirmed: false, error: 'insufficient_balance', msg: 'Place Bet button shows Deposit (balance < stake)', traceLogs };
         }
+        logTrace('pAttempt ' + pAttempt + ': Found button via findCollapsedPlaceBtn():', norm(collapsedBtn));
         initialBtn = collapsedBtn;
       } else {
         if (pAttempt % 20 === 0 && slipBar && isVis(slipBar)) {
+          logTrace('pAttempt ' + pAttempt + ': Periodic slipBar click to keep open');
           try { slipBar.click(); } catch (_) {}
         }
         if (isFootball) {
@@ -848,19 +877,23 @@ const PLACE_BET_JS = `
 
           if (rawExactPlace) {
             if (isDepositElement(rawExactPlace)) {
-              return { placed: false, confirmed: false, error: 'insufficient_balance', msg: 'Place Bet button shows Deposit (balance < stake)' };
+              logTrace('rawExactPlace is deposit:', norm(rawExactPlace));
+              return { placed: false, confirmed: false, error: 'insufficient_balance', msg: 'Place Bet button shows Deposit (balance < stake)', traceLogs };
             }
             const candidateBtn = (rawExactPlace.tagName === 'BUTTON' || rawExactPlace.getAttribute('role') === 'button')
               ? rawExactPlace
               : (rawExactPlace.closest('button, [role="button"]') || rawExactPlace);
             if (isDepositElement(candidateBtn)) {
-              return { placed: false, confirmed: false, error: 'insufficient_balance', msg: 'Place Bet button shows Deposit (balance < stake)' };
+              logTrace('candidateBtn is deposit:', norm(candidateBtn));
+              return { placed: false, confirmed: false, error: 'insufficient_balance', msg: 'Place Bet button shows Deposit (balance < stake)', traceLogs };
             }
+            logTrace('pAttempt ' + pAttempt + ': Found button via rawExactPlace:', norm(candidateBtn));
             initialBtn = candidateBtn;
           } else {
             // Check on-screen keyboard Place Bet button
             const kbPlace = Array.from(document.querySelectorAll('div.stake-keyboard [data-op="betslip-placebet"], div.stake-keyboard [data-op="done-bottom"], div.m-keyboard [data-op="betslip-placebet"]')).find(b => isVis(b) && !isDepositElement(b));
             if (kbPlace) {
+              logTrace('pAttempt ' + pAttempt + ': Found button via kbPlace:', norm(kbPlace));
               initialBtn = kbPlace;
             } else {
               const slipRoot = document.querySelector('.m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i], #betslip');
@@ -869,7 +902,10 @@ const PLACE_BET_JS = `
                 'button, [role="button"], .m-btn, .af-button, .es-button, [class*="btn" i], [class*="submit" i], [class*="place" i]'
               )).filter(b => isVis(b) && !isDepositElement(b) && !isNavOrFooter(b) && isPlaceBetText(norm(b)));
 
-              if (btns.length > 0) initialBtn = btns[btns.length - 1];
+              if (btns.length > 0) {
+                logTrace('pAttempt ' + pAttempt + ': Found button via scope text match:', norm(btns[btns.length - 1]));
+                initialBtn = btns[btns.length - 1];
+              }
             }
           }
         }
@@ -879,6 +915,7 @@ const PLACE_BET_JS = `
         syncVisibleStakeToModel();
         const initialTxt = norm(initialBtn);
         const wasAcceptChange = initialTxt.includes('accept change') || initialTxt.includes('save change') || initialTxt === 'accept';
+        logTrace('Triggering click on initialBtn. wasAcceptChange:', wasAcceptChange);
         placeCoords = triggerClick(initialBtn);
 
         if (wasAcceptChange) {
@@ -890,6 +927,7 @@ const PLACE_BET_JS = `
             )).find(b => isVis(b) && !isDepositElement(b) && isPlaceBetText(norm(b)));
             if (nextPlace && !norm(nextPlace).includes('accept')) {
               syncVisibleStakeToModel();
+              logTrace('Accept change clicked, now clicking transitioned place button:', norm(nextPlace));
               placeCoords = triggerClick(nextPlace);
               initialBtn = nextPlace;
               break;
@@ -902,19 +940,27 @@ const PLACE_BET_JS = `
     }
 
     if (!initialBtn) {
+      const allBtns = Array.from(document.querySelectorAll('button, [role="button"], .m-btn, .place-bet')).filter(isVis).map(b => ({
+        tag: b.tagName,
+        cls: b.className?.slice(0, 40),
+        txt: norm(b).slice(0, 30)
+      }));
+      logTrace('FAILED to locate initialBtn after 350 attempts. Visible buttons:', allBtns);
       const lockedAfter = checkOddsLocked();
-      if (lockedAfter) return { placed: false, confirmed: false, ...lockedAfter };
+      if (lockedAfter) return { placed: false, confirmed: false, ...lockedAfter, traceLogs };
       const preConfirm = findConfirmCandidate(null);
       if (preConfirm) {
+        logTrace('Found preConfirm candidate:', norm(preConfirm));
         const coords = triggerClick(preConfirm);
-        return { placed: true, confirmed: true, confirmX: coords?.x, confirmY: coords?.y, label: norm(preConfirm) };
+        return { placed: true, confirmed: true, confirmX: coords?.x, confirmY: coords?.y, label: norm(preConfirm), traceLogs };
       }
-      return { placed: false, confirmed: false };
+      return { placed: false, confirmed: false, traceLogs };
     }
 
     // Step 2: Continuous polling loop to detect and click Confirm immediately (up to 4.0s)
     let confirmedHit = null;
     let confirmCoords = null;
+    logTrace('Starting Step 2 (confirm/success detection)...');
 
     for (let attempt = 0; attempt < 350; attempt++) {
       // Check if success card or rebet button already appeared (instant bet placement)
@@ -922,18 +968,21 @@ const PLACE_BET_JS = `
         '[data-op="betslip-success-rebet"], [data-op="betslip-success"], .m-betslip-success, .m-success-box, [class*="betslip-success" i]'
       )).find(isVis);
       if (successModal) {
+        logTrace('Step 2: Instant Success screen detected on attempt ' + attempt);
         return {
           placed: true,
           confirmed: true,
           placeX: placeCoords?.x,
           placeY: placeCoords?.y,
           singleClickSuccess: true,
-          label: 'Success Screen'
+          label: 'Success Screen',
+          traceLogs
         };
       }
 
       const hit = findConfirmCandidate(initialBtn);
       if (hit) {
+        logTrace('Step 2: Found confirm candidate on attempt ' + attempt + ':', norm(hit));
         confirmCoords = triggerClick(hit);
         confirmedHit = hit;
 
@@ -942,6 +991,7 @@ const PLACE_BET_JS = `
           await wait(10);
           const nextHit = findConfirmCandidate(hit);
           if (nextHit && nextHit !== hit) {
+            logTrace('Step 2: Secondary confirm found on sub-attempt ' + sub + ':', norm(nextHit));
             confirmCoords = triggerClick(nextHit);
             confirmedHit = nextHit;
             break;
@@ -954,17 +1004,25 @@ const PLACE_BET_JS = `
           placeY: placeCoords?.y,
           confirmX: confirmCoords?.x,
           confirmY: confirmCoords?.y,
-          label: norm(confirmedHit)
+          label: norm(confirmedHit),
+          traceLogs
         };
       }
       await wait(6);
     }
 
+    const openDialogs = Array.from(document.querySelectorAll('.es-dialog, .m-dialog, .af-dialog, [role="dialog"], [class*="modal" i]')).filter(isVis).map(d => ({
+      cls: d.className?.slice(0, 40),
+      txt: norm(d).slice(0, 50)
+    }));
+    logTrace('Step 2 ended without confirm candidate. Visible dialogs:', openDialogs);
+
     return {
       placed: true,
       confirmed: false,
       placeX: placeCoords?.x,
-      placeY: placeCoords?.y
+      placeY: placeCoords?.y,
+      traceLogs
     };
   })()
 `;
@@ -982,6 +1040,13 @@ const CLICK_ANY_CONFIRM_JS = `
     };
 
     const norm = (el) => String(el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    const traceLogs = [];
+    const logTrace = (...args) => {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      try { console.log('[PlaceBet:Trace]', msg); } catch (_) {}
+      traceLogs.push(msg);
+    };
 
     const isDepositText = (t) => {
       if (!t) return false;
@@ -1090,6 +1155,14 @@ const CLICK_ANY_CONFIRM_JS = `
       if (target !== btn && !isDepositElement(target)) {
         try { target.click(); } catch (_) {}
       }
+      logTrace('triggerClick dispatched on:', {
+        tagName: btn.tagName,
+        className: btn.className,
+        dataOp: btn.getAttribute?.('data-op'),
+        text: norm(btn),
+        hasSafeTap: !!safeTap,
+        cx, cy
+      });
       return { x: cx, y: cy };
     };
 
@@ -1171,6 +1244,13 @@ const FAST_REBET_CYCLE_JS = (targetStake) => `
     };
 
     const norm = (el) => String(el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    const traceLogs = [];
+    const logTrace = (...args) => {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      try { console.log('[PlaceBet:Trace]', msg); } catch (_) {}
+      traceLogs.push(msg);
+    };
 
     const isDepositText = (t) => {
       if (!t) return false;
@@ -1263,6 +1343,14 @@ const FAST_REBET_CYCLE_JS = (targetStake) => `
       if (target !== btn && !isDepositElement(target)) {
         try { target.click(); } catch (_) {}
       }
+      logTrace('triggerClick dispatched on:', {
+        tagName: btn.tagName,
+        className: btn.className,
+        dataOp: btn.getAttribute?.('data-op'),
+        text: norm(btn),
+        hasSafeTap: !!safeTap,
+        cx, cy
+      });
       return { x: cx, y: cy };
     };
 
@@ -1420,6 +1508,13 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
 
     const norm = (el) => String(el?.innerText || el?.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
 
+    const traceLogs = [];
+    const logTrace = (...args) => {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      try { console.log('[AutoRebet:Trace]', msg); } catch (_) {}
+      traceLogs.push(msg);
+    };
+
     const isDepositText = (t) => {
       if (!t) return false;
       return /\\b(deposit|top[\\s-]?up|recharge|fund|add\\s*funds?|deposit\\s*&\\s*bet)\\b/i.test(t);
@@ -1511,6 +1606,14 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
       if (target !== btn && !isDepositElement(target)) {
         try { target.click(); } catch (_) {}
       }
+      logTrace('triggerClick dispatched on:', {
+        tagName: btn.tagName,
+        className: btn.className,
+        dataOp: btn.getAttribute?.('data-op'),
+        text: norm(btn),
+        hasSafeTap: !!safeTap,
+        cx, cy
+      });
       return { x: cx, y: cy };
     };
 
@@ -1925,29 +2028,50 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
     // STEP 1: Wait for Place Bet button to be rendered and enabled
     // ─────────────────────────────────────────────────────────────────────────────
     let placeBtn = null;
+    const slipBarCycle = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
+    logTrace('Cycle Step 1 Start. slipBar visible:', isVis(slipBarCycle));
+
     for (let pWait = 0; pWait < 1500; pWait++) {
-      if (window.__mfas_auto_rebet_stop) return { aborted: true };
+      if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
 
       const locked = checkOddsLocked();
-      if (locked) return { oddsLocked: true, error: locked.msg };
+      if (locked) {
+        logTrace('Step 1: checkOddsLocked failed:', locked.msg);
+        return { oddsLocked: true, error: locked.msg, traceLogs };
+      }
 
       const noBal = checkInsufficientBalance();
-      if (noBal) return { insufficientBalance: true, error: noBal.msg };
+      if (noBal) {
+        logTrace('Step 1: checkInsufficientBalance failed:', noBal.msg);
+        return { insufficientBalance: true, error: noBal.msg, traceLogs };
+      }
 
       // Only attempt expanding if missing for a long time (>250ms), NEVER periodic clicks that collapse
-      if (pWait === 125) ensureBetslipExpanded();
+      if (pWait === 125) {
+        logTrace('pWait 125: ensureBetslipExpanded() invoked');
+        ensureBetslipExpanded();
+      }
 
       placeBtn = findPlaceBetBtn();
-      if (placeBtn) break;
+      if (placeBtn) {
+        logTrace('pWait ' + pWait + ': Found placeBtn in Cycle Step 1:', norm(placeBtn));
+        break;
+      }
       await wait(2);
     }
 
     if (!placeBtn) {
+      const allBtns = Array.from(document.querySelectorAll('button, [role="button"], .m-btn, .place-bet')).filter(isVis).map(b => ({
+        tag: b.tagName,
+        cls: b.className?.slice(0, 40),
+        txt: norm(b).slice(0, 30)
+      }));
+      logTrace('FAILED to locate placeBtn in cycle after 1500 iters. Visible buttons:', allBtns);
       const locked = checkOddsLocked();
-      if (locked) return { oddsLocked: true, error: locked.msg };
+      if (locked) return { oddsLocked: true, error: locked.msg, traceLogs };
       const noBal = checkInsufficientBalance();
-      if (noBal) return { insufficientBalance: true, error: noBal.msg };
-      return { placed: false, confirmed: false, error: 'timeout_waiting_for_place_btn' };
+      if (noBal) return { insufficientBalance: true, error: noBal.msg, traceLogs };
+      return { placed: false, confirmed: false, error: 'timeout_waiting_for_place_btn', traceLogs };
     }
 
     // Ensure model is synchronized to visible stake right before clicking
@@ -1956,6 +2080,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
     // Click Place Bet!
     const initialTxt = norm(placeBtn);
     const wasAcceptChange = initialTxt.includes('accept change') || initialTxt.includes('save change') || initialTxt === 'accept';
+    logTrace('Cycle Step 1: Clicking placeBtn. wasAcceptChange:', wasAcceptChange);
     const placeCoords = triggerClick(placeBtn);
 
     if (wasAcceptChange) {
@@ -1964,6 +2089,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
         const nextPlace = findPlaceBetBtn();
         if (nextPlace && !norm(nextPlace).includes('accept')) {
           syncVisibleStakeToModel();
+          logTrace('Cycle Step 1: Transitioned accept change -> clicking place button:', norm(nextPlace));
           triggerClick(nextPlace);
           placeBtn = nextPlace;
           break;
@@ -1975,16 +2101,19 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
     // STEP 2: Wait for Confirm button or direct Success screen
     // ─────────────────────────────────────────────────────────────────────────────
     let confirmed = false;
+    logTrace('Cycle Step 2: Waiting for confirm or success screen...');
     for (let cWait = 0; cWait < 1500; cWait++) {
-      if (window.__mfas_auto_rebet_stop) return { aborted: true };
+      if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
 
       if (isSuccessModalOpen() || tryFindRebet()) {
+        logTrace('Cycle Step 2: Success modal / Rebet found immediately on cWait ' + cWait);
         confirmed = true;
         break;
       }
 
       const confirmBtn = findConfirmCandidate(placeBtn);
       if (confirmBtn) {
+        logTrace('Cycle Step 2: Confirm candidate found on cWait ' + cWait + ':', norm(confirmBtn));
         triggerClick(confirmBtn);
         confirmed = true;
 
@@ -1993,6 +2122,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
           await wait(5);
           const nextC = findConfirmCandidate(confirmBtn);
           if (nextC && nextC !== confirmBtn) {
+            logTrace('Cycle Step 2: Secondary confirm found on sub-attempt ' + sub + ':', norm(nextC));
             triggerClick(nextC);
             break;
           }
@@ -2006,11 +2136,13 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
     // STEP 3: Wait for "Bet Successful" modal & Click "Rebet"
     // ─────────────────────────────────────────────────────────────────────────────
     let rebetClicked = false;
+    logTrace('Cycle Step 3: Waiting for Rebet button...');
     for (let rWait = 0; rWait < 2000; rWait++) {
-      if (window.__mfas_auto_rebet_stop) return { aborted: true };
+      if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
 
       const rebetBtn = tryFindRebet();
       if (rebetBtn) {
+        logTrace('Cycle Step 3: Rebet button found on rWait ' + rWait + ':', norm(rebetBtn));
         triggerClick(rebetBtn);
         try { rebetBtn.click(); } catch (_) {}
         try { rebetBtn.click(); } catch (_) {}
@@ -2022,6 +2154,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
       if (rWait > 15 && !isSuccessModalOpen()) {
         const slipRoot = document.querySelector('.m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i]');
         if (slipRoot && isVis(slipRoot)) {
+          logTrace('Cycle Step 3: Preload observer closed modal, slip visible');
           rebetClicked = true;
           break;
         }
@@ -2035,14 +2168,15 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
     // Betslip Place Bet button to become ENABLED again (<5-10ms fast firing!)
     // ─────────────────────────────────────────────────────────────────────────────
     let slipReady = false;
+    logTrace('Cycle Step 4: Waiting for betslip to be ready for next cycle...');
     for (let nextWait = 0; nextWait < 2000; nextWait++) {
-      if (window.__mfas_auto_rebet_stop) return { aborted: true };
+      if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
 
       const locked = checkOddsLocked();
-      if (locked) return { oddsLocked: true, error: locked.msg };
+      if (locked) return { oddsLocked: true, error: locked.msg, traceLogs };
 
       const noBal = checkInsufficientBalance();
-      if (noBal) return { insufficientBalance: true, error: noBal.msg };
+      if (noBal) return { insufficientBalance: true, error: noBal.msg, traceLogs };
 
       // Success modal still lingering? Click rebet again to dismiss
       if (nextWait % 50 === 0 && isSuccessModalOpen()) {
@@ -2052,6 +2186,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
 
       const nextPlace = findPlaceBetBtn();
       if (nextPlace && !isSuccessModalOpen()) {
+        logTrace('Cycle Step 4: Next place button ready on nextWait ' + nextWait);
         slipReady = true;
         break;
       }
@@ -2065,7 +2200,8 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
       confirmed,
       rebetClicked,
       slipReady,
-      stake: stakeToSet
+      stake: stakeToSet,
+      traceLogs
     };
   })()
 `;
@@ -2083,6 +2219,13 @@ const REBET_JS = `
       return st.visibility !== 'hidden' && st.display !== 'none';
     };
     const norm = (el) => String(el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    const traceLogs = [];
+    const logTrace = (...args) => {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      try { console.log('[PlaceBet:Trace]', msg); } catch (_) {}
+      traceLogs.push(msg);
+    };
     const isDepositText = (t) => {
       if (!t) return false;
       return /\b(deposit|top[\s-]?up|recharge|fund|add\s*funds?|deposit\s*&\s*bet)\b/i.test(t);
@@ -2139,6 +2282,14 @@ const REBET_JS = `
         btn.dispatchEvent(new MouseEvent('mouseup', evInit));
       } catch (_) {}
       try { btn.click(); } catch (_) {}
+      logTrace('triggerClick dispatched on:', {
+        tagName: btn.tagName,
+        className: btn.className,
+        dataOp: btn.getAttribute?.('data-op'),
+        text: norm(btn),
+        hasSafeTap: !!safeTap,
+        cx, cy
+      });
       return { x: cx, y: cy };
     };
 

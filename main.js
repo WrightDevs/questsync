@@ -2764,6 +2764,9 @@ async function triggerPlaceBet(sourceLabel = 'UI') {
       if (!viewReady(v)) return { placed: false, confirmed: false };
       try {
         const res = await v.webContents.executeJavaScript(PLACE_BET_JS);
+        if (res && res.traceLogs && res.traceLogs.length > 0) {
+          console.log(`[PlaceBet:Trace:Pane ${i + 1}]\n  ` + res.traceLogs.join('\n  '));
+        }
         if (res && res.confirmed) {
           console.log(`[PlaceBet] Pane ${i + 1}: Bet placed and confirmed ("${res.label || ''}")`);
         } else if (res && res.placed) {
@@ -3056,6 +3059,9 @@ async function runPaneAttackLoop(v, i, targetCycles) {
     let res = null;
     try {
       res = await v.webContents.executeJavaScript(EXECUTE_ATTACK_CYCLE_JS(stakeToApply));
+      if (res && res.traceLogs && res.traceLogs.length > 0) {
+        console.log(`[AutoRebet:Trace:Pane ${i + 1}]\n  ` + res.traceLogs.join('\n  '));
+      }
     } catch (err) {
       console.error(`[AutoRebet] Pane ${i + 1} cycle error:`, err);
     }
