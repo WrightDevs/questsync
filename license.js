@@ -79,14 +79,23 @@ async function checkLicense(deps = {}) {
     if (!entry) {
       return {
         ok: false,
+        notApproved: true,
+        mid,
+        portalUrl: cfg.portalUrl || 'https://questsync-licensing-portal.vercel.app',
         reason: mid
-          ? 'This computer is not approved yet.\n\nSend this ID to the person who gave you the app:\n\n' + mid
+          ? 'This computer is not approved yet.\n\nYour Computer ID: ' + mid
           : 'Your access to this app has been disabled.',
       };
     }
     if (entry.active === false) return { ok: false, reason: 'Your access to this app has been disabled.' };
     if (entry.expires && new Date(entry.expires + 'T23:59:59').getTime() < now) {
-      return { ok: false, reason: 'Your access to this app has expired.' };
+      return {
+        ok: false,
+        expired: true,
+        mid,
+        portalUrl: cfg.portalUrl || 'https://questsync-licensing-portal.vercel.app',
+        reason: 'Your access to this app has expired.'
+      };
     }
     try {
       fs.writeFileSync(cachePath, JSON.stringify({ lastOk: now }));

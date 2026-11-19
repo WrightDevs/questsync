@@ -1,4 +1,4 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, clipboard } = require('electron');
 const { checkLicense } = require('./license');
 const { initAutoUpdater, checkForUpdates, installUpdate, getUpdateStatus } = require('./updater');
 const {
@@ -3402,9 +3402,56 @@ ipcMain.handle('ui:set-auto-cashout', async (_e, enabled) => {
 async function enforceLicense() {
   const result = await checkLicense();
   if (!result.ok) {
-    dialog.showErrorBox('Access not available', result.reason);
-    app.quit();
-    return false;
+    const portalUrl = result.portalUrl || 'https://questsync-licensing-portal.vercel.app';
+    const mid = result.mid || (result.reason?.match(/[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}/i)?.[0]) || '';
+
+    const choice = dialog.showMessageBoxSync({
+      type: 'warning',
+      title: 'QuestSync Pro — Subscription Required',
+      message: 'Active Subscription Required',
+      detail: mid
+        ? `This computer is not approved or your subscription has expired.\n\nComputer ID: ${mid}\n\nClick "Buy License Online" to choose a plan and activate this device automatically.`
+        : (result.reason || 'Access not available.'),
+      buttons: ['Buy License Online', 'Copy Computer ID', 'Check Again', 'Exit'],
+      defaultId: 0,
+      cancelId: 3,
+      noLink: true
+    });
+
+    if (choice === 0) {
+      const buyUrl = mid ? `${portalUrl}/?mid=${encodeURIComponent(mid)}` : portalUrl;
+      shell.openExternal(buyUrl);
+
+      const waitChoice = dialog.showMessageBoxSync({
+        type: 'info',
+        title: 'Complete Your Purchase',
+        message: 'Your browser has opened to the QuestSync activation portal.',
+        detail: 'After completing payment on Paystack, click "I Have Paid" to unlock your software immediately.',
+        buttons: ['I Have Paid - Unlock App', 'Exit'],
+        defaultId: 0,
+        cancelId: 1
+      });
+
+      if (waitChoice === 0) {
+        return await enforceLicense();
+      } else {
+        app.quit();
+        return false;
+      }
+    } else if (choice === 1) {
+      if (mid) clipboard.writeText(mid);
+      dialog.showMessageBoxSync({
+        type: 'info',
+        title: 'Copied',
+        message: `Computer ID ${mid} copied to clipboard.`
+      });
+      return await enforceLicense();
+    } else if (choice === 2) {
+      return await enforceLicense();
+    } else {
+      app.quit();
+      return false;
+    }
   }
   return true;
 }
