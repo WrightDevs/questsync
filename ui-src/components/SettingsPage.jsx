@@ -815,7 +815,7 @@ export default function SettingsPage({
                 <span className="row-desc">Current application client build</span>
               </div>
               <div className="row-value-badge">
-                <span>v{updateStatus?.currentVersion || '1.0.2'}</span>
+                <span>v{updateStatus?.currentVersion || '1.0.3'}</span>
               </div>
             </div>
 

@@ -288,7 +288,7 @@ async function main() {
       '--title',
       `QuestSync ${versionTag}`,
       '--notes',
-      `Release ${versionTag}: Fix bet placement from collapsed fast-betslip card and instant confirmation`,
+      `Release ${versionTag}: Rapid bet placement confirmation observer, Betano monitor setting fix, and self-serve licensing portal integration.`,
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
     if (pubRes.status === 0) {

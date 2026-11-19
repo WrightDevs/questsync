@@ -162,7 +162,7 @@ export default function App() {
   }, []);
 
   // ─── In-App Auto-Update State ───
-  const [updateStatus, setUpdateStatus] = useState({ status: 'idle', currentVersion: '1.0.2' });
+  const [updateStatus, setUpdateStatus] = useState({ status: 'idle', currentVersion: '1.0.3' });
 
   useEffect(() => {
     if (window.api && window.api.onUpdateStatus) {
