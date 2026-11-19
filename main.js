@@ -2130,11 +2130,8 @@ async function handleSportyMatchSync(data) {
   const t1 = (data.team1 || '').trim().toLowerCase();
   const t2 = (data.team2 || '').trim().toLowerCase();
 
-  // Ensure monitor is open
-  if (!monitorConfig.open) {
-    ensureMonitorOpen();
-    await sleep(700);
-  }
+  // If the user has hidden/closed the monitor in settings, respect that and do not force it open
+  if (!monitorConfig.open) return;
 
   const wc = getActiveMonitorWebContents();
   if (!wc || wc.isDestroyed()) return;
