@@ -989,7 +989,11 @@ function injectConfirmSuppressionStyles() {
     const style = document.createElement('style');
     style.id = styleId;
     style.textContent = `
-      /* Suppress SportyBet & Football.com confirmation buttons & confirmation drawers from visually displaying */
+      /* =========================================================================
+         1. BETSLIP ONLY Confirmation Suppression (Rapid Attack / Spacebar / Rebet)
+         CRITICAL: Only suppress intermediate bet confirmation inside betslip.
+         NEVER suppress Cashout buttons, dialogs, drawers, or account modals!
+         ========================================================================= */
       button[data-op="betslip-confirm"],
       [data-op="betslip-confirm"],
       button.flexibet-confirm,
@@ -999,23 +1003,98 @@ function injectConfirmSuppressionStyles() {
       [data-op="betslip-confirm-to-pay-confirm"],
       [data-op="betslip-confirm-to-pay-btn"],
       [data-op="confirm-to-pay-btn"],
-      button:has([data-cms-key="confirm"]),
-      [data-cms-key="confirm"],
       .m-fast-betslip [data-op*="confirm" i],
       .m-betslip [data-op*="confirm" i],
-      .m-dialog:has([data-op*="confirm" i]),
-      .drawer:has([data-op*="confirm" i]),
-      [role="dialog"]:has([data-op*="confirm" i]),
-      .m-pop-box:has([data-op*="confirm" i]) {
+      .m-fast-betslip button:has([data-cms-key="confirm"]),
+      .m-betslip button:has([data-cms-key="confirm"]),
+      [data-op*="betslip" i] button:has([data-cms-key="confirm"]),
+      [data-op="betslip-confirm-to-pay-modal"] button:has([data-cms-key="confirm"]),
+      .m-dialog:has([data-op*="betslip-confirm" i]):not([class*="cashout" i]):not(:has([class*="cashout" i])),
+      .drawer:has([data-op*="betslip-confirm" i]):not([class*="cashout" i]):not(:has([class*="cashout" i])),
+      [role="dialog"]:has([data-op*="betslip-confirm" i]):not([class*="cashout" i]):not(:has([class*="cashout" i])),
+      .m-pop-box:has([data-op*="betslip-confirm" i]):not([class*="cashout" i]):not(:has([class*="cashout" i])) {
         opacity: 0 !important;
         pointer-events: auto !important;
         transition: none !important;
         animation: none !important;
       }
-      .m-mask:has(~ .m-dialog [data-op*="confirm" i]),
-      .m-dialog-mask:has(~ .m-dialog [data-op*="confirm" i]) {
+      .m-mask:has(~ .m-dialog [data-op*="betslip-confirm" i]),
+      .m-dialog-mask:has(~ .m-dialog [data-op*="betslip-confirm" i]) {
         opacity: 0 !important;
         pointer-events: none !important;
+      }
+
+      /* =========================================================================
+         2. CASHOUT FLOW: Explicit High-Priority Visibility Guarantee
+         Ensures Cashout dialogs, cards, sliders, and Confirm buttons are ALWAYS
+         100% visible, fully opaque, and directly clickable.
+         ========================================================================= */
+      .m-cashout,
+      [class*="cashout" i],
+      [data-op*="cashout" i],
+      .m-cashout *,
+      [class*="cashout" i] *,
+      [data-op*="cashout" i] * {
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+      }
+
+      /* =========================================================================
+         3. VIEWPORT SIZING & BOTTOM-SHEET SCROLLABILITY (Shared across SB & FB)
+         Fixes panels being cut off in narrow / short embedded pane viewports.
+         Ensures bottom sheets are anchored cleanly, never exceed viewport height,
+         and allow smooth vertical scrolling so bottom buttons are always reachable.
+         ========================================================================= */
+      /* All bottom-sheets, modal dialogs, drawers & cashout panels */
+      .m-cashout,
+      [class*="cashout-dialog" i],
+      [class*="cashout-confirm" i],
+      [class*="cashout-drawer" i],
+      .bottom-panel-drawer,
+      .es-dialog:not(.dialog-full),
+      .m-dialog:not(.align-with-window):not(.dialog-full),
+      .drawer__content,
+      .van-popup--bottom,
+      [role="dialog"]:not(.dialog-full),
+      [class*="bottom-sheet" i] {
+        max-height: 98vh !important;
+        max-height: 98dvh !important;
+        box-sizing: border-box !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        overscroll-behavior: contain !important;
+      }
+
+      /* Bottom-anchored elements must sit at bottom: 0 so Confirm button stays on-screen */
+      .m-cashout,
+      [class*="cashout-dialog" i],
+      [class*="cashout-confirm" i],
+      [class*="cashout-drawer" i],
+      .bottom-panel-drawer,
+      .van-popup--bottom {
+        bottom: 0 !important;
+      }
+
+      /* Inner content containers inside cashout / bottom sheets must allow vertical scrolling */
+      .m-cashout .m-dialog-body,
+      .m-cashout .es-dialog-body,
+      .m-cashout .m-dialog-main,
+      .m-cashout .es-dialog-main,
+      .m-cashout [class*="content" i],
+      .m-cashout [class*="main" i],
+      [class*="cashout" i] [class*="body" i],
+      [class*="cashout" i] [class*="content" i],
+      [class*="cashout" i] [class*="main" i],
+      .van-popup--bottom [class*="content" i] {
+        max-height: 100% !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+      }
+
+      /* Allow pane document scrolling so content is never cut off in small pane heights */
+      html, body {
+        overflow-y: auto !important;
       }
     `;
     const target = document.head || document.documentElement;
@@ -1023,20 +1102,63 @@ function injectConfirmSuppressionStyles() {
   } catch (_) {}
 }
 
+// Automatically ensure Cashout Confirm button is scrolled into view when cashout panel opens
+function ensureCashoutConfirmInView() {
+  try {
+    const cashoutRoots = Array.from(document.querySelectorAll(
+      '.m-cashout, [class*="cashout" i], [data-op*="cashout" i], .bottom-panel-drawer, .van-popup--bottom'
+    ));
+    for (const root of cashoutRoots) {
+      if (!root || root.offsetParent === null) continue;
+      const cBtns = Array.from(root.querySelectorAll(
+        'button, [role="button"], .m-btn, .af-button, [data-op*="confirm" i], [data-op*="cashout" i], [class*="confirm" i]'
+      )).filter((b) => {
+        const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+        return t.includes('confirm') || t.includes('cashout');
+      });
+      if (cBtns.length > 0) {
+        const btn = cBtns[cBtns.length - 1];
+        btn.style.setProperty('opacity', '1', 'important');
+        btn.style.setProperty('visibility', 'visible', 'important');
+        btn.style.setProperty('pointer-events', 'auto', 'important');
+        try { btn.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
 if (typeof document !== 'undefined') {
   injectConfirmSuppressionStyles();
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', injectConfirmSuppressionStyles);
+    document.addEventListener('DOMContentLoaded', () => {
+      injectConfirmSuppressionStyles();
+      ensureCashoutConfirmInView();
+    });
   }
+  // Watch for cashout dialog appearances to bring confirm button immediately into view
+  try {
+    const cashoutObserver = new MutationObserver(() => {
+      ensureCashoutConfirmInView();
+    });
+    const attachObs = () => {
+      if (document.body) {
+        cashoutObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+      }
+    };
+    if (document.body) attachObs();
+    else document.addEventListener('DOMContentLoaded', attachObs);
+  } catch (_) {}
 }
 
 function findConfirmCandidateInView() {
   try {
     const candidates = Array.from(document.querySelectorAll(
-      'button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-wrap"] [data-op="betslip-confirm"], button[data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-btn"], [data-op="confirm-to-pay-btn"], button:has([data-cms-key="confirm"]), [data-cms-key="confirm"]'
+      'button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-wrap"] [data-op="betslip-confirm"], button[data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-btn"], [data-op="confirm-to-pay-btn"], .m-fast-betslip button:has([data-cms-key="confirm"]), .m-betslip button:has([data-cms-key="confirm"]), [data-op*="betslip" i] button:has([data-cms-key="confirm"])'
     ));
     for (const b of candidates) {
       if (!b) continue;
+      // Strictly exclude any cashout confirmation targets from betslip auto-confirm
+      if (b.closest('.m-cashout, [class*="cashout" i], [data-op*="cashout" i]')) continue;
       const r = b.getBoundingClientRect();
       if (r.width < 5 || r.height < 5) continue;
       const t = String(b.innerText || b.textContent || '').trim().toLowerCase();
@@ -1046,10 +1168,14 @@ function findConfirmCandidateInView() {
 
     const modals = Array.from(document.querySelectorAll('.es-dialog, .m-dialog, .af-dialog, .m-pop-box, .m-pop, .m-modal, [role="dialog"], [class*="dialog" i], [class*="modal" i]'));
     for (const m of modals) {
+      if (m.closest('.m-cashout, [class*="cashout" i], [data-op*="cashout" i]') || (m.matches && m.matches('.m-cashout, [class*="cashout" i], [data-op*="cashout" i]'))) {
+        continue; // Strictly ignore cashout modals
+      }
       const txt = String(m.innerText || m.textContent || '').trim().toLowerCase();
       if (/insufficient|deposit|low\s*balance/i.test(txt)) continue;
       const mBtns = Array.from(m.querySelectorAll('button, [role="button"], .m-btn, [class*="btn" i], [class*="confirm" i], [class*="pay" i]'));
       for (const mb of mBtns) {
+        if (mb.closest('.m-cashout, [class*="cashout" i], [data-op*="cashout" i]')) continue;
         const r = mb.getBoundingClientRect();
         if (r.width < 5 || r.height < 5) continue;
         const bt = String(mb.innerText || mb.textContent || '').trim().toLowerCase();

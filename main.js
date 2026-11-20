@@ -752,6 +752,14 @@ function createWindow() {
     layout();
     saveUserSettings();
   });
+  win.on('maximize', () => {
+    layout();
+    saveUserSettings();
+  });
+  win.on('unmaximize', () => {
+    layout();
+    saveUserSettings();
+  });
   win.on('move', () => {
     saveUserSettings();
   });
