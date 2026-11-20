@@ -440,6 +440,9 @@ function extractSemantic(target, clickable) {
   if (el.closest('[data-op="betslip-remove-all"]') || (inBetslip && /^(remove all|clear all|clear slip)$/i.test(low))) {
     return { kind: 'action', action: 'remove-all', inBetslip: true, label: txt };
   }
+  if (el.closest('[data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"]')) {
+    return { kind: 'action', action: 'open-betslip', inBetslip: false, label: 'betslip-icon' };
+  }
   if (/open[_\s-]*bets?/i.test(hrefPath) || /^open\s*bets?$/i.test(low)) {
     return { kind: 'action', action: 'open-bets', hrefPath, label: txt };
   }
@@ -630,8 +633,8 @@ function findCrossSiteTarget(m) {
       const navs = Array.from(document.querySelectorAll('a, button, [role="button"]')).filter(isElementVisible);
       return navs.find(el => /^open\s*bets?$/i.test((el.textContent || '').trim())) || null;
     }
-    if (sem.action === 'betslip-tab') {
-      return document.querySelector('[data-op="fast-betslip-container"], .m-betslip-entry, [class*="betslip-entry" i], .m-fast-betslip') || null;
+    if (sem.action === 'open-betslip' || sem.action === 'betslip-tab') {
+      return document.querySelector('[data-op="betslip-icon"], [data-op="fast-betslip-container"], .m-betslip-entry, [class*="betslip-entry" i], .m-fast-betslip') || null;
     }
     if (sem.action === 'place-bet') {
       // 1. Collapsed fast betslip button (SportyBet & general)
@@ -963,7 +966,19 @@ function triggerElementAction(el) {
     cur = cur.parentElement;
   }
 
-  // 3. Native DOM click
+  // 3. Football.com open betslip bottom sheet support
+  if (el.closest && el.closest('[data-op="betslip-icon"], [data-op*="betslip-icon" i]')) {
+    try {
+      const nuxtEl = document.querySelector('#__nuxt') || document.querySelector('#app');
+      const pinia = nuxtEl?.__vue_app__?.config?.globalProperties?.$pinia;
+      const uiStore = pinia?._s?.get('betslip_ui_state');
+      if (uiStore && typeof uiStore.openBetslipBottomSheet === 'function') {
+        uiStore.openBetslipBottomSheet();
+      }
+    } catch (_) {}
+  }
+
+  // 4. Native DOM click
   try { el.click(); } catch (_) {}
 }
 
@@ -974,17 +989,15 @@ function injectConfirmSuppressionStyles() {
     const style = document.createElement('style');
     style.id = styleId;
     style.textContent = `
-      /* Suppress SportyBet confirmation buttons & confirmation drawers from visually displaying */
+      /* Suppress SportyBet & Football.com confirmation buttons & confirmation drawers from visually displaying */
       button[data-op="betslip-confirm"],
       [data-op="betslip-confirm"],
       button.flexibet-confirm,
       .flexibet-confirm,
       [data-op="betslip-confirm-wrap"],
+      button[data-op="betslip-confirm-to-pay-confirm"],
       [data-op="betslip-confirm-to-pay-confirm"],
       [data-op="betslip-confirm-to-pay-btn"],
-      [data-op="betslip-confirm-to-pay-modal"],
-      [data-op="betslip-confirm-to-pay-sheet"],
-      [data-op="confirm-to-pay-modal"],
       [data-op="confirm-to-pay-btn"],
       button:has([data-cms-key="confirm"]),
       [data-cms-key="confirm"],
@@ -1192,7 +1205,7 @@ document.addEventListener('click', (e) => {
   const isInput = (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
     || target.isContentEditable || !!target.closest('input, textarea, [contenteditable]')) && !isStakeField;
   const clickable = target.closest(
-    'button, a, [role="button"], input, label, select, [data-op="outcome-btn"], [data-op="betslip-keyboard-trigger"], [data-op="appendKey"], [data-op="clearAll"], [data-op="removeLast"], [data-op="done-bottom"], [data-op="betslip-remove-all"], [data-op="fast-betslip-single-bottom-row-right-content"], [data-op="betslip-placebet"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"], [class*="btn"], [class*="odd"], span.m-keybord-input, [class*="stake" i]'
+    'button, a, [role="button"], input, label, select, [data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="outcome-btn"], [data-op="betslip-keyboard-trigger"], [data-op="appendKey"], [data-op="clearAll"], [data-op="removeLast"], [data-op="done-bottom"], [data-op="betslip-remove-all"], [data-op="fast-betslip-single-bottom-row-right-content"], [data-op="betslip-placebet"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"], [class*="btn"], [class*="odd"], span.m-keybord-input, [class*="stake" i]'
   );
 
   const isInsideModal = !!target.closest(
@@ -1311,7 +1324,7 @@ ipcRenderer.on('mirror-replay', (_e, m) => {
       const el = findTarget(m);
 
       if (el) {
-        const clickable = el.closest('button, a, [role="button"], label, input, [data-op="outcome-btn"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"]');
+        const clickable = el.closest('button, a, [role="button"], label, input, [data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="outcome-btn"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"]');
         const targetToClick = clickable || el;
 
         const isOverlay = targetToClick.matches && targetToClick.matches(
@@ -1384,6 +1397,8 @@ ipcRenderer.on('mirror-replay', (_e, m) => {
         if (m.semantic?.action === 'place-bet') {
           triggerElementAction(targetToClick);
           wireBetslipAutoConfirm(targetToClick);
+        } else if (m.semantic?.action === 'open-betslip') {
+          triggerElementAction(targetToClick);
         }
       }
     } else if (m.type === 'scroll') {
