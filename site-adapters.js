@@ -458,6 +458,109 @@ function readFieldCode(selector) {
   `;
 }
 
+// Dedicated helper to synchronize Football.com visible stake directly into Nuxt 3 / Pinia store
+function FOOTBALL_SYNC_STAKE_SNIPPET(valVar, elVar) {
+  return `
+        try {
+          const _fbVal = String(${valVar} || '').trim();
+          if (_fbVal && !/^min\\b/i.test(_fbVal) && !/^stake$/i.test(_fbVal) && !/^enter/i.test(_fbVal)) {
+            const _nuxtEl = document.querySelector('#__nuxt') || document.querySelector('#app') || document.body.firstElementChild;
+            let _pinia = _nuxtEl?.__vue_app__?.config?.globalProperties?.$pinia;
+            if (!_pinia && ${elVar}) {
+              let _cEl = ${elVar};
+              while (_cEl && _cEl !== document.documentElement) {
+                const _comp = _cEl.__vueParentComponent || _cEl.__vnode?.component || _cEl._vnode?.component;
+                if (_comp) {
+                  _pinia = _comp.appContext?.config?.globalProperties?.$pinia || _comp.appContext?.provides?.[Symbol.for('pinia')] || _comp.appContext?.provides?.pinia;
+                  if (_pinia) break;
+                }
+                _cEl = _cEl.parentElement;
+              }
+            }
+            if (_pinia) {
+              const _store = _pinia._s?.get('betslip_stake') || _pinia._s?.get('betslip_real');
+              if (_store) {
+                if (typeof _store.updateDefaultStake === 'function') {
+                  try { _store.updateDefaultStake(_fbVal); } catch (_) {}
+                }
+                if (typeof _store.updateSingleStake === 'function') {
+                  try { _store.updateSingleStake({}, { syncAllWith: _fbVal }); } catch (_) {}
+                }
+                if (typeof _store.updateMultipleStake === 'function') {
+                  try { _store.updateMultipleStake(_fbVal); } catch (_) {}
+                }
+                if (_store.defaultStake) {
+                  try { _store.defaultStake.value = _fbVal; } catch (_) {}
+                }
+                if (_store.multipleStake) {
+                  try { _store.multipleStake.value = _fbVal; } catch (_) {}
+                }
+                if (_store.singleStakeMap && _store.singleStakeMap.value) {
+                  try {
+                    _store.singleStakeMap.value.union = _fbVal;
+                    for (const _k of Object.keys(_store.singleStakeMap.value)) {
+                      _store.singleStakeMap.value[_k] = _fbVal;
+                    }
+                  } catch (_) {}
+                }
+              }
+              if (_pinia.state?.value?.betslip_stake) {
+                const _s = _pinia.state.value.betslip_stake;
+                _s.defaultStake = _fbVal;
+                _s.multipleStake = _fbVal;
+                if (_s.singleStakeMap) {
+                  _s.singleStakeMap.union = _fbVal;
+                  for (const _k of Object.keys(_s.singleStakeMap)) {
+                    _s.singleStakeMap[_k] = _fbVal;
+                  }
+                }
+              }
+            }
+
+            if (${elVar}) {
+              let _curComp = ${elVar};
+              while (_curComp && _curComp !== document.documentElement) {
+                const _comp = _curComp.__vueParentComponent || _curComp.__vnode?.component || _curComp._vnode?.component;
+                if (_comp) {
+                  try { _comp.emit('update:modelValue', _fbVal); } catch (_) {}
+                  try { _comp.emit('change', _fbVal); } catch (_) {}
+                  try { _comp.emit('input', _fbVal); } catch (_) {}
+                  const _proxy = _comp.proxy || _comp.ctx || _comp.setupState;
+                  if (_proxy) {
+                    if (typeof _proxy.updateSingleStake === 'function') {
+                      try { _proxy.updateSingleStake({}, { syncAllWith: _fbVal }); } catch (_) {}
+                    }
+                    if (typeof _proxy.updateMultipleStake === 'function') {
+                      try { _proxy.updateMultipleStake(_fbVal); } catch (_) {}
+                    }
+                    if (typeof _proxy.updateDefaultStake === 'function') {
+                      try { _proxy.updateDefaultStake(_fbVal); } catch (_) {}
+                    }
+                  }
+                }
+                _curComp = _curComp.parentElement;
+              }
+            }
+
+            const _kb = document.querySelector('div.stake-keyboard, [data-op="stake-keyboard"]');
+            if (_kb) {
+              try {
+                const _clearBtn = _kb.querySelector('[data-op="clearAll"], [data-key="clear"]');
+                if (_clearBtn) _clearBtn.click();
+                for (const _ch of _fbVal) {
+                  const _keyBtn = Array.from(_kb.querySelectorAll('[data-op="appendKey"]')).find(n => (n.textContent || '').trim() === _ch)
+                    || Array.from(_kb.querySelectorAll('[data-key]')).find(n => n.getAttribute('data-key') === _ch);
+                  if (_keyBtn) _keyBtn.click();
+                }
+                const _doneBtn = _kb.querySelector('[data-op="done-bottom"], [data-key="done"], [data-key="ok"], [data-key="hide"]');
+                if (_doneBtn) _doneBtn.click();
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
+  `;
+}
+
 const KEYBOARD_CONTAINER_SELECTOR = 'div.stake-keyboard, [data-op="stake-keyboard"], div.m-keyboard, div.m-keybord, [class*="fastMode-keyboard" i], [class*="m-keyboard" i]';
 
 const PLACE_BET_JS = `
@@ -754,6 +857,23 @@ const PLACE_BET_JS = `
         if (!el) return;
         const raw = String(el.value !== undefined && el.value !== '' ? el.value : el.textContent || '').trim();
         if (!raw || /^min\b/i.test(raw) || /^stake$/i.test(raw) || /^enter/i.test(raw)) return;
+
+        // Football.com Nuxt 3 / Pinia synchronization
+        const isFootball = /football\\.com/i.test(location.hostname || '');
+        if (isFootball) {
+          ${FOOTBALL_SYNC_STAKE_SNIPPET('raw', 'el')}
+          if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+            if (el.value !== raw) {
+              const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+              const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+              if (setter) setter.call(el, raw);
+              else el.value = raw;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }
+          return;
+        }
 
         // Standard input: ensure value matches
         if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
@@ -1622,17 +1742,21 @@ const FAST_REBET_CYCLE_JS = (targetStake) => `
             input.classList.remove('m-input--placeholder');
             input.textContent = val;
             input.innerText = val;
-            let cur = input;
-            while (cur && cur !== document.documentElement) {
-              const comp = cur.__vueParentComponent || cur.__vnode?.component || cur._vnode?.component;
-              if (comp) {
-                try { comp.emit('input', val); } catch (_) {}
-                const proxy = comp.proxy || comp.ctx || comp.setupState;
-                if (proxy && typeof proxy.changeSingleStake === 'function') {
-                  try { proxy.changeSingleStake(val); } catch (_) {}
+            if (isFootball) {
+              ${FOOTBALL_SYNC_STAKE_SNIPPET('val', 'input')}
+            } else {
+              let cur = input;
+              while (cur && cur !== document.documentElement) {
+                const comp = cur.__vueParentComponent || cur.__vnode?.component || cur._vnode?.component;
+                if (comp) {
+                  try { comp.emit('input', val); } catch (_) {}
+                  const proxy = comp.proxy || comp.ctx || comp.setupState;
+                  if (proxy && typeof proxy.changeSingleStake === 'function') {
+                    try { proxy.changeSingleStake(val); } catch (_) {}
+                  }
                 }
+                cur = cur.parentElement;
               }
-              cur = cur.parentElement;
             }
             inputUpdated = true;
             break;
@@ -2087,61 +2211,67 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
           el.classList.remove('m-input--placeholder');
           el.textContent = vStr;
           el.innerText = vStr;
-          let cur = el;
-          while (cur && cur !== document.documentElement) {
-            const comp = cur.__vueParentComponent || cur.__vnode?.component || cur._vnode?.component;
-            if (comp) {
-              try { comp.emit('input', vStr); } catch (_) {}
-              try { comp.emit('update:modelValue', vStr); } catch (_) {}
-              const proxy = comp.proxy || comp.ctx || comp.setupState;
-              if (proxy) {
-                if (typeof proxy.changeSingleStake === 'function') {
-                  try { proxy.changeSingleStake(vStr); } catch (_) {}
-                }
-                if (typeof proxy.changeMultipleStake === 'function') {
-                  try { proxy.changeMultipleStake(vStr); } catch (_) {}
-                }
-                if (proxy.bet && proxy.bet.key && proxy.singleStake) {
-                  try { proxy.singleStake[proxy.bet.key] = vStr; } catch (_) {}
-                }
-              }
-              if (comp.parent) {
-                const pProxy = comp.parent.proxy || comp.parent.ctx || comp.parent.setupState;
-                if (pProxy) {
-                  if (typeof pProxy.changeSingleStake === 'function') {
-                    try { pProxy.changeSingleStake(vStr); } catch (_) {}
-                  }
-                  if (pProxy.bet && pProxy.bet.key && pProxy.singleStake) {
-                    try { pProxy.singleStake[pProxy.bet.key] = vStr; } catch (_) {}
-                  }
-                }
-              }
-            }
-            if (cur.__vue__) {
-              const vm = cur.__vue__;
-              if ('stake' in vm) vm.stake = vStr;
-              if ('value' in vm) vm.value = vStr;
-              if ('currentStake' in vm) vm.currentStake = vStr;
-              if (typeof vm.$emit === 'function') {
-                vm.$emit('input', vStr);
-                vm.$emit('change', vStr);
-              }
-              if (vm.$store && typeof vm.$store.commit === 'function') {
-                try { vm.$store.commit('betslip/updateStake', vStr); } catch (_) {}
-                try { vm.$store.commit('betslip/setStake', vStr); } catch (_) {}
-                try { vm.$store.commit('setStake', vStr); } catch (_) {}
-              }
-              break;
-            }
-            cur = cur.parentElement;
-          }
 
-          const appEl = document.querySelector('#app');
-          if (appEl && appEl.__vue_app__) {
-            const store = appEl.__vue_app__.config?.globalProperties?.$store;
-            if (store && store.state?.betslipStake?.singleStake) {
-              for (const k of Object.keys(store.state.betslipStake.singleStake)) {
-                store.state.betslipStake.singleStake[k] = vStr;
+          const isFootball = /football\\.com/i.test(location.hostname || '');
+          if (isFootball) {
+            ${FOOTBALL_SYNC_STAKE_SNIPPET('vStr', 'el')}
+          } else {
+            let cur = el;
+            while (cur && cur !== document.documentElement) {
+              const comp = cur.__vueParentComponent || cur.__vnode?.component || cur._vnode?.component;
+              if (comp) {
+                try { comp.emit('input', vStr); } catch (_) {}
+                try { comp.emit('update:modelValue', vStr); } catch (_) {}
+                const proxy = comp.proxy || comp.ctx || comp.setupState;
+                if (proxy) {
+                  if (typeof proxy.changeSingleStake === 'function') {
+                    try { proxy.changeSingleStake(vStr); } catch (_) {}
+                  }
+                  if (typeof proxy.changeMultipleStake === 'function') {
+                    try { proxy.changeMultipleStake(vStr); } catch (_) {}
+                  }
+                  if (proxy.bet && proxy.bet.key && proxy.singleStake) {
+                    try { proxy.singleStake[proxy.bet.key] = vStr; } catch (_) {}
+                  }
+                }
+                if (comp.parent) {
+                  const pProxy = comp.parent.proxy || comp.parent.ctx || comp.parent.setupState;
+                  if (pProxy) {
+                    if (typeof pProxy.changeSingleStake === 'function') {
+                      try { pProxy.changeSingleStake(vStr); } catch (_) {}
+                    }
+                    if (pProxy.bet && pProxy.bet.key && pProxy.singleStake) {
+                      try { pProxy.singleStake[pProxy.bet.key] = vStr; } catch (_) {}
+                    }
+                  }
+                }
+              }
+              if (cur.__vue__) {
+                const vm = cur.__vue__;
+                if ('stake' in vm) vm.stake = vStr;
+                if ('value' in vm) vm.value = vStr;
+                if ('currentStake' in vm) vm.currentStake = vStr;
+                if (typeof vm.$emit === 'function') {
+                  vm.$emit('input', vStr);
+                  vm.$emit('change', vStr);
+                }
+                if (vm.$store && typeof vm.$store.commit === 'function') {
+                  try { vm.$store.commit('betslip/updateStake', vStr); } catch (_) {}
+                  try { vm.$store.commit('betslip/setStake', vStr); } catch (_) {}
+                  try { vm.$store.commit('setStake', vStr); } catch (_) {}
+                }
+                break;
+              }
+              cur = cur.parentElement;
+            }
+
+            const appEl = document.querySelector('#app');
+            if (appEl && appEl.__vue_app__) {
+              const store = appEl.__vue_app__.config?.globalProperties?.$store;
+              if (store && store.state?.betslipStake?.singleStake) {
+                for (const k of Object.keys(store.state.betslipStake.singleStake)) {
+                  store.state.betslipStake.singleStake[k] = vStr;
+                }
               }
             }
           }
@@ -2158,6 +2288,23 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
         if (!el) return;
         const raw = String(el.value !== undefined && el.value !== '' ? el.value : el.textContent || '').trim();
         if (!raw || /^min\b/i.test(raw) || /^stake$/i.test(raw) || /^enter/i.test(raw)) return;
+
+        // Football.com Nuxt 3 / Pinia synchronization
+        const isFootball = /football\\.com/i.test(location.hostname || '');
+        if (isFootball) {
+          ${FOOTBALL_SYNC_STAKE_SNIPPET('raw', 'el')}
+          if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+            if (el.value !== raw) {
+              const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+              const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+              if (setter) setter.call(el, raw);
+              else el.value = raw;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }
+          return;
+        }
 
         if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
           if (el.value !== raw) {
@@ -3030,83 +3177,89 @@ const FAST_SET_STAKE_JS = (val) => `
         el.textContent = vStr;
         el.innerText = vStr;
 
-        // Traverse Vue 2 and Vue 3 component hierarchy
-        let cur = el;
-        while (cur && cur !== document.documentElement) {
-          // Vue 3 component inspection (__vueParentComponent or __vnode.component)
-          const comp = cur.__vueParentComponent || cur.__vnode?.component || cur._vnode?.component;
-          if (comp) {
-            try { comp.emit('input', vStr); } catch (_) {}
-            try { comp.emit('update:modelValue', vStr); } catch (_) {}
-            try { comp.emit('change', vStr); } catch (_) {}
+        const isFootball = /football\\.com/i.test(location.hostname || '');
+        if (isFootball) {
+          ${FOOTBALL_SYNC_STAKE_SNIPPET('vStr', 'el')}
+          modelVerified = true;
+        } else {
+          // Traverse Vue 2 and Vue 3 component hierarchy
+          let cur = el;
+          while (cur && cur !== document.documentElement) {
+            // Vue 3 component inspection (__vueParentComponent or __vnode.component)
+            const comp = cur.__vueParentComponent || cur.__vnode?.component || cur._vnode?.component;
+            if (comp) {
+              try { comp.emit('input', vStr); } catch (_) {}
+              try { comp.emit('update:modelValue', vStr); } catch (_) {}
+              try { comp.emit('change', vStr); } catch (_) {}
 
-            const proxy = comp.proxy || comp.ctx || comp.setupState;
-            if (proxy) {
-              if (typeof proxy.changeSingleStake === 'function') {
-                try { proxy.changeSingleStake(vStr); modelVerified = true; } catch (_) {}
+              const proxy = comp.proxy || comp.ctx || comp.setupState;
+              if (proxy) {
+                if (typeof proxy.changeSingleStake === 'function') {
+                  try { proxy.changeSingleStake(vStr); modelVerified = true; } catch (_) {}
+                }
+                if (typeof proxy.changeMultipleStake === 'function') {
+                  try { proxy.changeMultipleStake(vStr); modelVerified = true; } catch (_) {}
+                }
+                if (proxy.bet && proxy.bet.key && proxy.singleStake) {
+                  try { proxy.singleStake[proxy.bet.key] = vStr; modelVerified = true; } catch (_) {}
+                }
               }
-              if (typeof proxy.changeMultipleStake === 'function') {
-                try { proxy.changeMultipleStake(vStr); modelVerified = true; } catch (_) {}
-              }
-              if (proxy.bet && proxy.bet.key && proxy.singleStake) {
-                try { proxy.singleStake[proxy.bet.key] = vStr; modelVerified = true; } catch (_) {}
+
+              if (comp.parent) {
+                const pProxy = comp.parent.proxy || comp.parent.ctx || comp.parent.setupState;
+                if (pProxy) {
+                  if (typeof pProxy.changeSingleStake === 'function') {
+                    try { pProxy.changeSingleStake(vStr); modelVerified = true; } catch (_) {}
+                  }
+                  if (typeof pProxy.changeMultipleStake === 'function') {
+                    try { pProxy.changeMultipleStake(vStr); modelVerified = true; } catch (_) {}
+                  }
+                  if (pProxy.bet && pProxy.bet.key && pProxy.singleStake) {
+                    try { pProxy.singleStake[pProxy.bet.key] = vStr; modelVerified = true; } catch (_) {}
+                  }
+                }
               }
             }
 
-            if (comp.parent) {
-              const pProxy = comp.parent.proxy || comp.parent.ctx || comp.parent.setupState;
-              if (pProxy) {
-                if (typeof pProxy.changeSingleStake === 'function') {
-                  try { pProxy.changeSingleStake(vStr); modelVerified = true; } catch (_) {}
-                }
-                if (typeof pProxy.changeMultipleStake === 'function') {
-                  try { pProxy.changeMultipleStake(vStr); modelVerified = true; } catch (_) {}
-                }
-                if (pProxy.bet && pProxy.bet.key && pProxy.singleStake) {
-                  try { pProxy.singleStake[pProxy.bet.key] = vStr; modelVerified = true; } catch (_) {}
-                }
+            // Vue 2 instance inspection
+            if (cur.__vue__) {
+              const vm = cur.__vue__;
+              if ('stake' in vm) vm.stake = vStr;
+              if ('value' in vm) vm.value = vStr;
+              if ('currentStake' in vm) vm.currentStake = vStr;
+              if (typeof vm.$emit === 'function') {
+                vm.$emit('input', vStr);
+                vm.$emit('change', vStr);
               }
+              if (vm.$store && typeof vm.$store.commit === 'function') {
+                try { vm.$store.commit('betslip/updateStake', vStr); } catch (_) {}
+                try { vm.$store.commit('betslip/setStake', vStr); } catch (_) {}
+                try { vm.$store.commit('setStake', vStr); } catch (_) {}
+              }
+              modelVerified = true;
+              break;
             }
+            cur = cur.parentElement;
           }
 
-          // Vue 2 instance inspection
-          if (cur.__vue__) {
-            const vm = cur.__vue__;
-            if ('stake' in vm) vm.stake = vStr;
-            if ('value' in vm) vm.value = vStr;
-            if ('currentStake' in vm) vm.currentStake = vStr;
-            if (typeof vm.$emit === 'function') {
-              vm.$emit('input', vStr);
-              vm.$emit('change', vStr);
-            }
-            if (vm.$store && typeof vm.$store.commit === 'function') {
-              try { vm.$store.commit('betslip/updateStake', vStr); } catch (_) {}
-              try { vm.$store.commit('betslip/setStake', vStr); } catch (_) {}
-              try { vm.$store.commit('setStake', vStr); } catch (_) {}
-            }
-            modelVerified = true;
-            break;
-          }
-          cur = cur.parentElement;
-        }
-
-        // Vue 3 global store commit
-        const appEl = document.querySelector('#app');
-        if (appEl && appEl.__vue_app__) {
-          const globalStore = appEl.__vue_app__.config?.globalProperties?.$store;
-          if (globalStore) {
-            try {
-              if (globalStore.state?.betslipStake?.singleStake) {
-                for (const k of Object.keys(globalStore.state.betslipStake.singleStake)) {
-                  globalStore.state.betslipStake.singleStake[k] = vStr;
+          // Vue 3 global store commit
+          const appEl = document.querySelector('#app');
+          if (appEl && appEl.__vue_app__) {
+            const globalStore = appEl.__vue_app__.config?.globalProperties?.$store;
+            if (globalStore) {
+              try {
+                if (globalStore.state?.betslipStake?.singleStake) {
+                  for (const k of Object.keys(globalStore.state.betslipStake.singleStake)) {
+                    globalStore.state.betslipStake.singleStake[k] = vStr;
+                    modelVerified = true;
+                  }
+                }
+                if (globalStore.state?.betslipStake && 'multipleStake' in globalStore.state.betslipStake) {
+                  globalStore.state.betslipStake.multipleStake = vStr;
                   modelVerified = true;
                 }
-              }
-              if (globalStore.state?.betslipStake && 'multipleStake' in globalStore.state.betslipStake) {
-                globalStore.state.betslipStake.multipleStake = vStr;
-                modelVerified = true;
-              }
-            } catch (_) {}
+              } catch (_) {}
+            }
           }
         }
 
