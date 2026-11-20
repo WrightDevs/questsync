@@ -42,7 +42,7 @@ export default function SettingsDrawer({
   const bMode = betanoConfig?.mode || 'dock';
   const bSide = betanoConfig?.side || 'right';
   const bWidth = betanoConfig?.width ?? 340;
-  const bZoom = betanoConfig?.zoom ?? 0.9;
+  const bZoom = betanoConfig?.zoom ?? 0.65;
   const bMobileUA = betanoConfig?.mobileUA !== false;
 
   const cAutoNav = cashoutConfig?.autoNavOpenBets !== false;

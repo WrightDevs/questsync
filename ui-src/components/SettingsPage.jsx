@@ -32,11 +32,11 @@ export default function SettingsPage({
   onToggleAutoAlign,
 
   // Layout
-  tileSize = 60,
+  tileSize = 65,
   onTileSizeChange,
-  layoutMode = 'auto',
+  layoutMode = 'row',
   onLayoutChange,
-  zoom = 1,
+  zoom = 0.65,
   onZoom,
   siteStatus = 'sportybet',
   onSwitchSite,
@@ -97,7 +97,7 @@ export default function SettingsPage({
   const bMode = betanoConfig?.mode || 'dock';
   const bSide = betanoConfig?.side || 'right';
   const bWidth = betanoConfig?.width ?? 340;
-  const bZoom = betanoConfig?.zoom ?? 0.9;
+  const bZoom = betanoConfig?.zoom ?? 0.65;
   const bMobileUA = betanoConfig?.mobileUA !== false;
 
   const cAutoNav = cashoutConfig?.autoNavOpenBets !== false;

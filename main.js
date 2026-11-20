@@ -95,7 +95,7 @@ const monitorConfig = {
   mode: 'dock',    // 'dock' | 'float'
   side: 'left',    // 'left' | 'right' (sidebar docked on left by default)
   width: 340,      // docked strip width in px (260..540)
-  zoom: 0.9,       // independent monitor zoom (0.5..1.5)
+  zoom: 0.65,      // independent monitor zoom (0.5..1.5)
   mobileUA: true,  // mobile User-Agent
 };
 // Backward compatibility reference
@@ -113,7 +113,7 @@ let degenInterval = null;
 
 let views = [];
 let activePaneIndex = 0;
-let layoutMode = 'auto'; // 'auto' | 'row' | 'grid'
+let layoutMode = 'row'; // 'auto' | 'row' | 'grid'
 let currentUrl = 'about:blank';
 let currentCountry = 'ng'; // batch/default country fallback ('ng' | 'gh')
 let paneProfiles = []; // Array<{ site: 'sportybet' | 'football', country: 'ng' | 'gh', url: string }>
@@ -121,7 +121,7 @@ let hasSavedProfiles = false;
 let savedWindowCount = 5;
 let savedWindowBounds = null;
 let wholeStakeOption = true;
-const options = { mirror: true, typing: false, windowSync: true, autoAlign: true };
+const options = { mirror: true, typing: true, windowSync: true, autoAlign: true };
 let savedOddsSel = '';
 let savedStakeSel = '';
 let hotkeysEnabled = true;
@@ -132,7 +132,7 @@ const cashoutConfig = {
   pollMs: 1200,
   disarmOnHit: false,
 };
-let zoom = 1;
+let zoom = 0.65;
 
 // Track per-view text input focus synchronously so Spacebar hotkey never triggers while typing
 const viewEditableFocus = new Map();
@@ -432,7 +432,7 @@ function setZoom(action) {
     zoom = Math.round(action * 100) / 100;
   } else {
     const step = action === 'in' ? 0.1 : action === 'out' ? -0.1 : 0;
-    zoom = action === 'reset' ? 1 : Math.min(2, Math.max(0.25, Math.round((zoom + step) * 100) / 100));
+    zoom = action === 'reset' ? 0.65 : Math.min(2, Math.max(0.25, Math.round((zoom + step) * 100) / 100));
   }
   views.forEach((v) => {
     if (!v.webContents.isDestroyed()) v.webContents.setZoomFactor(zoom);
@@ -2396,7 +2396,7 @@ function adjustMonitorZoom(actionOrValue) {
   let next = monitorConfig.zoom;
   if (actionOrValue === 'in') next = Math.min(1.5, Math.round((next + 0.1) * 100) / 100);
   else if (actionOrValue === 'out') next = Math.max(0.5, Math.round((next - 0.1) * 100) / 100);
-  else if (actionOrValue === 'reset') next = 1;
+  else if (actionOrValue === 'reset') next = 0.65;
   else if (typeof actionOrValue === 'number' && !Number.isNaN(actionOrValue)) {
     next = Math.min(1.5, Math.max(0.5, Math.round(actionOrValue * 100) / 100));
   }

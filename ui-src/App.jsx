@@ -27,7 +27,7 @@ const DEFAULT_BETANO_CFG = {
   mode: 'dock',
   side: 'left',
   width: 340,
-  zoom: 0.9,
+  zoom: 0.65,
   mobileUA: true,
 };
 
@@ -82,11 +82,11 @@ export default function App() {
   const [url, setUrl] = useState(() => saved('url', 'https://www.sportybet.com/ng/m/'));
   const [urlScope, setUrlScope] = useState(() => (saved('urlScope', 'all') === 'active' ? 'active' : 'all'));
   const [count, setCount] = useState(() => Math.min(8, Math.max(1, parseInt(saved('count', '5'), 10) || 5)));
-  const [layoutMode, setLayoutMode] = useState(() => saved('layout', 'auto'));
-  const [zoom, setZoom] = useState(1);
+  const [layoutMode, setLayoutMode] = useState(() => saved('layout', 'row'));
+  const [zoom, setZoom] = useState(0.65);
 
   const [mirror, setMirror] = useState(true);
-  const [typing, setTyping] = useState(false);
+  const [typing, setTyping] = useState(() => saved('typing', '1') !== '0');
 
   const [targetGH, setTargetGH] = useState(() => saved('targetGH', '200'));
   const [targetNG, setTargetNG] = useState(() => saved('targetNG', '7500'));
@@ -123,7 +123,7 @@ export default function App() {
   // Toolbar & metrics state
   const [windowSync, setWindowSync] = useState(() => saved('windowSync', '1') !== '0');
   const [autoAlign, setAutoAlign] = useState(() => saved('autoAlign', '1') !== '0');
-  const [tileSize, setTileSize] = useState(() => parseInt(saved('tileSize', '60'), 10) || 60);
+  const [tileSize, setTileSize] = useState(() => parseInt(saved('tileSize', '65'), 10) || 65);
   const [todayBets, setTodayBets] = useState(() => parseInt(saved('todayBets', '0'), 10) || 0);
   const [todayTotal, setTodayTotal] = useState(() => saved('todayTotal', '0.00'));
   const [activeMatch, setActiveMatch] = useState('');

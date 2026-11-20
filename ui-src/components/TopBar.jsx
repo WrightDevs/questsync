@@ -30,7 +30,7 @@ export default function TopBar({
   todayBets = 0,
   todayTotal = '0.00',
   lastCopyMs = 302,
-  tileSize = 60,
+  tileSize = 65,
   onTileSizeChange,
   monitorSite = 'betano',
   betanoOpen,
