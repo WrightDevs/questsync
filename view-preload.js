@@ -375,11 +375,16 @@ function extractOutcomeLabelFromBtn(btn) {
 }
 
 function extractMarketName(outcomeBtn, card) {
-  const group = outcomeBtn.closest('[data-op*="market" i], [class*="market" i], [class*="group" i]');
+  // Site-aware market container lookup (SportyBet & Football.com)
+  const group = outcomeBtn.closest(
+    '[data-op="market-group"], [data-op*="market" i], [class*="market-item" i], [class*="market-group" i], section[class*="market" i], .m-market, .m-market-group, .m-table, [class*="m-market" i], [class*="accordion" i], [class*="group" i]'
+  );
   if (group && (!card || card.contains(group))) {
-    const title = group.querySelector('[class*="title" i], [class*="header" i], [class*="name" i]');
+    const title = group.querySelector(
+      '[data-op="market-group-title"], [data-op*="market-title" i], [data-op*="title" i], [data-op*="header" i], .m-market-header, .m-market-title, .m-table-header, [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="title" i], [class*="header" i], [class*="name" i], h3, h4, h5'
+    );
     if (title && !outcomeBtn.contains(title)) {
-      return String(title.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 48);
+      return String(title.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
     }
   }
   return '';
@@ -480,7 +485,50 @@ function extractSemantic(target, clickable) {
     }
   }
 
-  // 4. Generic nav / button / modal action
+  // 4. Market category tab click (e.g. "All", "Goals", "Halves", "Handicap", "Next Goal")
+  if (!inBetslip && !isInsideModal) {
+    const marketTab = el.closest(
+      '[role="tab"], [class*="tab-item" i], [class*="market-tab" i], [data-op*="tab" i], .m-tab-item, .m-tabs > div'
+    );
+    if (marketTab) {
+      const tabText = String(marketTab.innerText || marketTab.textContent || '').replace(/\s+/g, ' ').trim();
+      const parent = marketTab.parentElement;
+      const siblings = parent ? Array.from(parent.children).filter(c => isElementVisible(c)) : [];
+      const tabIdx = siblings.indexOf(marketTab);
+      if (tabText && tabText.length < 50) {
+        return {
+          kind: 'market-tab',
+          tabName: tabText,
+          tabIndex: tabIdx >= 0 ? tabIdx : null,
+          label: tabText,
+        };
+      }
+    }
+  }
+
+  // 5. Market accordion header / toggle click (e.g. "Away Nth Goal", "Home Nth Goal", "Over/Under")
+  if (!inBetslip && !isInsideModal) {
+    const marketHeader = el.closest(
+      '[data-op*="market-title" i], [data-op*="market-header" i], [data-op*="market-group-title" i], [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="market__header" i], [class*="market-toggle" i], .m-market-title, .m-market-header, .m-table-header'
+    );
+    if (marketHeader) {
+      const headerText = String(marketHeader.innerText || marketHeader.textContent || '').replace(/\s+/g, ' ').trim();
+      const group = marketHeader.closest(
+        '[data-op="market-group"], [data-op*="market" i], [class*="market-item" i], [class*="market-group" i], section[class*="market" i], .m-market, .m-market-group, .m-table, [class*="m-market" i], [class*="accordion" i], [class*="group" i]'
+      );
+      const marketId = group?.getAttribute('data-market-id') || null;
+      if (headerText && headerText.length < 60) {
+        return {
+          kind: 'market-header',
+          marketName: headerText,
+          marketId,
+          label: headerText,
+        };
+      }
+    }
+  }
+
+  // 6. Generic nav / button / modal action
   if (/^live(\s+betting)?$/i.test(low) || /\/live(\b|\/|$)/i.test(hrefPath)) {
     return { kind: 'action', action: 'live', hrefPath, label: txt };
   }
@@ -558,19 +606,33 @@ function findCrossSiteTarget(m) {
   if (!sem) return null;
 
   if (sem.kind === 'outcome') {
-    const card = findCardSemanticMatch(sem);
+    let card = findCardSemanticMatch(sem);
+    const isMatchPage = !card && !!document.querySelector('main, [class*="match-detail" i], [class*="event-detail" i], .match-info');
+    if (isMatchPage) {
+      card = document.querySelector('main, [class*="match-detail" i], [class*="event-detail" i]') || document.body;
+    }
     if (!card) return null;
     let scope = card;
     if (sem.market && (card === document.body || card.tagName === 'MAIN')) {
       const mNorm = normText(sem.market);
-      const groups = Array.from(card.querySelectorAll('[data-op*="market" i], [class*="market" i]')).filter(isElementVisible);
+      const groups = Array.from(card.querySelectorAll(
+        '[data-op="market-group"], [data-op*="market" i], [class*="market-item" i], [class*="market-group" i], section[class*="market" i], .m-market, .m-market-group, .m-table, [class*="m-market" i], [class*="accordion" i], [class*="group" i]'
+      )).filter(isElementVisible);
       const matchedGroup = groups.find(g => {
-        const hdr = g.querySelector('[class*="title" i], [class*="header" i], [class*="name" i]');
+        const hdr = g.querySelector(
+          '[data-op="market-group-title"], [data-op*="market-title" i], [data-op*="title" i], [data-op*="header" i], .m-market-header, .m-market-title, .m-table-header, [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="title" i], [class*="header" i], [class*="name" i], h3, h4, h5'
+        );
         const ht = normText(hdr ? hdr.textContent : '');
-        return ht && (ht.includes(mNorm) || mNorm.includes(ht)
+        return ht && (ht === mNorm || ht.includes(mNorm) || mNorm.includes(ht)
           || ((mNorm.includes('gg') || mNorm.includes('both teams')) && (ht.includes('gg') || ht.includes('both teams'))));
       });
-      if (matchedGroup) scope = matchedGroup;
+      if (matchedGroup) {
+        scope = matchedGroup;
+      } else {
+        // Market specified for a match page was not found (different page, market not loaded, or suspended)
+        // DO NOT search all buttons on document.body to prevent clicking the wrong market!
+        return null;
+      }
     }
 
     const btns = getOutcomeButtonsInContainer(scope);
@@ -599,6 +661,60 @@ function findCrossSiteTarget(m) {
         }
       }
       if (btns[sem.outcomeIndex]) return btns[sem.outcomeIndex];
+    } else if (sem.outcomeIndex != null && btns[sem.outcomeIndex]) {
+      return btns[sem.outcomeIndex];
+    }
+    return null;
+  }
+
+  if (sem.kind === 'market-tab') {
+    const tabNameNorm = normText(sem.tabName || sem.label || '');
+    const candidates = Array.from(document.querySelectorAll(
+      '[role="tab"], [class*="tab-item" i], [class*="market-tab" i], [data-op*="tab" i], .m-tab-item, .m-tabs > div, [class*="tabs" i] > div, [class*="tabs" i] > button, a[class*="tab" i]'
+    )).filter(isElementVisible);
+    if (tabNameNorm) {
+      const hit = candidates.find(t => {
+        const txt = normText(t.textContent || '');
+        return txt === tabNameNorm || (txt && (txt.includes(tabNameNorm) || tabNameNorm.includes(txt)));
+      });
+      if (hit) return hit;
+    }
+    if (sem.tabIndex != null && candidates[sem.tabIndex]) {
+      return candidates[sem.tabIndex];
+    }
+    return null;
+  }
+
+  if (sem.kind === 'market-header') {
+    const mNorm = normText(sem.marketName || sem.label || '');
+    if (sem.marketId) {
+      const byId = document.querySelector(`[data-market-id="${sem.marketId}"]`);
+      if (byId && isElementVisible(byId)) {
+        const hdr = byId.querySelector('[data-op*="title" i], [data-op*="header" i], [class*="title" i], [class*="header" i], .m-market-header, .m-market-title') || byId;
+        return hdr;
+      }
+    }
+    const candidates = Array.from(document.querySelectorAll(
+      '[data-op*="market-title" i], [data-op*="market-header" i], [data-op*="market-group-title" i], [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="market__header" i], [class*="market-toggle" i], .m-market-title, .m-market-header, .m-table-header'
+    )).filter(isElementVisible);
+    if (mNorm) {
+      const hit = candidates.find(h => {
+        const ht = normText(h.textContent || '');
+        return ht === mNorm || (ht && (ht.includes(mNorm) || mNorm.includes(ht)));
+      });
+      if (hit) return hit;
+    }
+    const groups = Array.from(document.querySelectorAll(
+      '[data-op="market-group"], [data-op*="market" i], [class*="market-item" i], [class*="market-group" i], section[class*="market" i], .m-market, .m-market-group, .m-table, [class*="accordion" i]'
+    )).filter(isElementVisible);
+    for (const g of groups) {
+      const titleEl = g.querySelector('[data-op*="title" i], [data-op*="header" i], [class*="title" i], [class*="header" i], [class*="name" i], h3, h4, h5');
+      if (titleEl && isElementVisible(titleEl)) {
+        const ht = normText(titleEl.textContent || '');
+        if (ht && (ht === mNorm || ht.includes(mNorm) || mNorm.includes(ht))) {
+          return titleEl;
+        }
+      }
     }
     return null;
   }
@@ -1331,7 +1447,7 @@ document.addEventListener('click', (e) => {
   const isInput = (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
     || target.isContentEditable || !!target.closest('input, textarea, [contenteditable]')) && !isStakeField;
   const clickable = target.closest(
-    'button, a, [role="button"], input, label, select, [data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="outcome-btn"], [data-op="betslip-keyboard-trigger"], [data-op="appendKey"], [data-op="clearAll"], [data-op="removeLast"], [data-op="done-bottom"], [data-op="betslip-remove-all"], [data-op="fast-betslip-single-bottom-row-right-content"], [data-op="betslip-placebet"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"], [class*="btn"], [class*="odd"], span.m-keybord-input, [class*="stake" i]'
+    'button, a, [role="button"], input, label, select, [data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="outcome-btn"], [data-op="betslip-keyboard-trigger"], [data-op="appendKey"], [data-op="clearAll"], [data-op="removeLast"], [data-op="done-bottom"], [data-op="betslip-remove-all"], [data-op="fast-betslip-single-bottom-row-right-content"], [data-op="betslip-placebet"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"], [class*="btn"], [class*="odd"], span.m-keybord-input, [class*="stake" i], [role="tab"], [class*="tab-item" i], [class*="market-tab" i], [data-op*="tab" i], .m-tab-item, [data-op*="market-title" i], [data-op*="market-header" i], [data-op*="market-group-title" i], [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="market-toggle" i], .m-market-title, .m-market-header, .m-table-header'
   );
 
   const isInsideModal = !!target.closest(
@@ -1407,14 +1523,12 @@ function findTarget(m) {
     return findCrossSiteTarget(m);
   }
 
-  // 0. For outcomes and match navigation, semantic matching across cards is highest fidelity
-  if (m.semantic && (m.semantic.kind === 'outcome' || m.semantic.kind === 'match-nav')) {
+  // 0. For outcomes, market headers, market tabs, and match navigation, semantic identity matching is highest fidelity
+  if (m.semantic && (m.semantic.kind === 'outcome' || m.semantic.kind === 'market-header' || m.semantic.kind === 'market-tab' || m.semantic.kind === 'match-nav')) {
     const semHit = findCrossSiteTarget(m);
     if (semHit) return semHit;
   }
 
-  const x = m.rx != null ? Math.round(m.rx * window.innerWidth) : null;
-  const y = m.ry != null ? Math.round(m.ry * window.innerHeight) : null;
   let el = null;
 
   // 1. Same-site: if user clicked a specific button or interactive control, try that selector first
@@ -1430,15 +1544,32 @@ function findTarget(m) {
     el = findCrossSiteTarget(m);
   }
 
-  // 2. Same-site fallback: exact screen coordinate element (backdrop dismissal, etc.)
-  if (!el && x != null && y != null) {
-    el = document.elementFromPoint(x, y);
-  }
-
-  // 3. Fallback to css path selector
+  // 2. Fallback to css path selector
   if (!el && m.selector) {
     try { el = document.querySelector(m.selector); } catch (_) {}
   }
+
+  // 3. STRICT COORDINATE SAFETY:
+  // ONLY allow coordinate fallback for non-interactive modal backdrop dismissals!
+  // NEVER blindly click coordinates for outcomes, markets, accordions, tabs, or buttons!
+  const isInteractive = !!(m.clickableSelector || (m.semantic && m.semantic.kind !== 'generic'));
+  if (!el && !isInteractive && m.isInsideModal && m.rx != null && m.ry != null) {
+    const x = Math.round(m.rx * window.innerWidth);
+    const y = Math.round(m.ry * window.innerHeight);
+    const candidate = document.elementFromPoint(x, y);
+    const isOverlay = candidate && candidate.matches && candidate.matches(
+      'body, html, [class*="mask" i], [class*="overlay" i], [class*="backdrop" i]'
+    );
+    if (isOverlay) el = candidate;
+  }
+
+  if (!el && isInteractive) {
+    console.warn('[MirrorReplay] could not mirror: element not found on pane, skipping to prevent desync', {
+      semantic: m.semantic,
+      clickableSelector: m.clickableSelector
+    });
+  }
+
   return el;
 }
 
@@ -1450,7 +1581,7 @@ ipcRenderer.on('mirror-replay', (_e, m) => {
       const el = findTarget(m);
 
       if (el) {
-        const clickable = el.closest('button, a, [role="button"], label, input, [data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="outcome-btn"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"]');
+        const clickable = el.closest('button, a, [role="button"], label, input, [data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="outcome-btn"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"], [role="tab"], [class*="tab-item" i], [class*="market-tab" i], [data-op*="tab" i], .m-tab-item, [data-op*="market-title" i], [data-op*="market-header" i], [data-op*="market-group-title" i], [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="market-toggle" i], .m-market-title, .m-market-header, .m-table-header');
         const targetToClick = clickable || el;
 
         const isOverlay = targetToClick.matches && targetToClick.matches(
