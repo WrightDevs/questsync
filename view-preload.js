@@ -72,6 +72,29 @@ function uniqueSelector(el) {
     const s = '#' + CSS.escape(el.id);
     try { if (document.querySelectorAll(s).length === 1) return s; } catch (_) {}
   }
+
+  // Data-op direct attribute check
+  const directOp = el.getAttribute && el.getAttribute('data-op');
+  if (directOp && /^[a-zA-Z0-9_-]+$/.test(directOp)) {
+    const s = `${el.tagName.toLowerCase()}[data-op="${CSS.escape(directOp)}"]`;
+    try { if (document.querySelectorAll(s).length === 1) return s; } catch (_) {}
+  }
+
+  // Scoped to ancestor with data-event-id or data-op
+  let anc = el.parentElement;
+  for (let d = 0; anc && anc !== document.body && d < 6; d++, anc = anc.parentElement) {
+    const eid = anc.getAttribute && anc.getAttribute('data-event-id');
+    const aOp = anc.getAttribute && anc.getAttribute('data-op');
+    if (eid && /^[a-zA-Z0-9:_-]+$/.test(eid)) {
+      const aSel = `${anc.tagName.toLowerCase()}[data-event-id="${CSS.escape(eid)}"] > ${relPath(anc, el)}`;
+      try { if (document.querySelectorAll(aSel).length === 1) return aSel; } catch (_) {}
+    }
+    if (aOp && /^[a-zA-Z0-9_-]+$/.test(aOp)) {
+      const aSel = `${anc.tagName.toLowerCase()}[data-op="${CSS.escape(aOp)}"] > ${relPath(anc, el)}`;
+      try { if (document.querySelectorAll(aSel).length === 1) return aSel; } catch (_) {}
+    }
+  }
+
   const chain = [];
   let cur = el;
   for (let d = 0; cur && cur.nodeType === 1 && cur !== document.documentElement && d < 6; d++, cur = cur.parentElement) {
@@ -246,6 +269,21 @@ function extractCardSrMatchId(card) {
 
 function extractTeamsFromCard(card) {
   if (!card) return extractTeamsFromPageHeader();
+
+  // Inspect structured team wrapper (e.g. Football.com match card team names)
+  if (card.querySelector) {
+    const teamWrapper = card.querySelector('[data-op="match-card-team-names"], [class*="team-names" i]');
+    if (teamWrapper) {
+      const subEls = Array.from(teamWrapper.querySelectorAll('h1, h2, h3, [data-op="search-highlight"], span, div')).filter(el => el.children.length === 0);
+      const subNames = [];
+      for (const el of subEls) {
+        const t = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (t && t.length >= 2 && !/^\d+$/.test(t) && !subNames.includes(t)) subNames.push(t);
+      }
+      if (subNames.length >= 2) return [subNames[0], subNames[1]];
+    }
+  }
+
   const teamEls = Array.from(card.querySelectorAll(
     '[data-op*="team" i], [class*="home-team" i], [class*="away-team" i], [class*="team-name" i], [class*="teamName" i], .team'
   )).filter(el => isElementVisible(el) && !el.closest('[data-op="outcome-btn"], [class*="outcome" i]'));
@@ -311,6 +349,28 @@ function extractOutcomeLabelFromBtn(btn) {
     .map(s => s.trim())
     .filter(s => s && !/^\d+\.\d+$/.test(s) && s !== '--');
   if (parts.length) return normalizeOutcomeLabel(parts[0]);
+
+  // Football.com fallback: look up column label from card's market title bar or sibling index
+  try {
+    const card = findMatchCard(btn);
+    if (card) {
+      const row = btn.parentElement;
+      const rowBtns = row ? Array.from(row.children).filter(c => c.matches && c.matches('[data-op="outcome-btn"], .m-outcome, [class*="outcome" i]')) : [];
+      const idx = rowBtns.indexOf(btn);
+      if (idx >= 0) {
+        const titleBar = card.querySelector('[data-op="classic-match-card-market-title-bar"], [data-op*="market-title-bar"]');
+        if (titleBar) {
+          const colLabels = Array.from(titleBar.children).map(c => (c.textContent || '').trim()).filter(Boolean);
+          if (colLabels[idx]) return normalizeOutcomeLabel(colLabels[idx]);
+        }
+        if (rowBtns.length === 3) {
+          const map3 = ['1', 'x', '2'];
+          return normalizeOutcomeLabel(map3[idx]);
+        }
+      }
+    }
+  } catch (_) {}
+
   return '';
 }
 
@@ -542,10 +602,19 @@ function findCrossSiteTarget(m) {
 
   if (sem.kind === 'match-nav') {
     const card = findCardSemanticMatch(sem);
-    if (!card) return null;
-    const link = card.querySelector('a[href*="sr:match:"]')
-      || card.querySelector('[data-op*="team" i], [class*="team" i], [class*="header" i]');
-    return link || card;
+    if (card) {
+      const link = card.querySelector('a[href*="sr:match:"], a[data-op*="nav" i], a.un-absolute')
+        || card.querySelector('[data-op*="team" i], [class*="team" i], [class*="header" i]');
+      return link || card;
+    }
+    if (sem.hrefPath) {
+      const links = Array.from(document.querySelectorAll('a[href]')).filter(isElementVisible);
+      const hit = links.find(a => {
+        try { return stripCountryPrefix(new URL(a.href, location.origin).pathname) === sem.hrefPath; } catch (_) { return false; }
+      });
+      if (hit) return hit;
+    }
+    return null;
   }
 
   if (sem.kind === 'action') {
@@ -911,7 +980,10 @@ function injectConfirmSuppressionStyles() {
       button.flexibet-confirm,
       .flexibet-confirm,
       [data-op="betslip-confirm-wrap"],
+      [data-op="betslip-confirm-to-pay-confirm"],
       [data-op="betslip-confirm-to-pay-btn"],
+      [data-op="betslip-confirm-to-pay-modal"],
+      [data-op="betslip-confirm-to-pay-sheet"],
       [data-op="confirm-to-pay-modal"],
       [data-op="confirm-to-pay-btn"],
       button:has([data-cms-key="confirm"]),
@@ -948,7 +1020,7 @@ if (typeof document !== 'undefined') {
 function findConfirmCandidateInView() {
   try {
     const candidates = Array.from(document.querySelectorAll(
-      'button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-wrap"] [data-op="betslip-confirm"], [data-op="betslip-confirm-to-pay-btn"], [data-op="confirm-to-pay-btn"], button:has([data-cms-key="confirm"]), [data-cms-key="confirm"]'
+      'button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-wrap"] [data-op="betslip-confirm"], button[data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-btn"], [data-op="confirm-to-pay-btn"], button:has([data-cms-key="confirm"]), [data-cms-key="confirm"]'
     ));
     for (const b of candidates) {
       if (!b) continue;
@@ -1196,6 +1268,12 @@ function findTarget(m) {
     return findCrossSiteTarget(m);
   }
 
+  // 0. For outcomes and match navigation, semantic matching across cards is highest fidelity
+  if (m.semantic && (m.semantic.kind === 'outcome' || m.semantic.kind === 'match-nav')) {
+    const semHit = findCrossSiteTarget(m);
+    if (semHit) return semHit;
+  }
+
   const x = m.rx != null ? Math.round(m.rx * window.innerWidth) : null;
   const y = m.ry != null ? Math.round(m.ry * window.innerHeight) : null;
   let el = null;
@@ -1247,12 +1325,13 @@ ipcRenderer.on('mirror-replay', (_e, m) => {
         }
 
         const rect = targetToClick.getBoundingClientRect ? targetToClick.getBoundingClientRect() : null;
-        const x = (!crossSite && m.rx != null)
-          ? Math.round(m.rx * window.innerWidth)
-          : (rect ? Math.round(rect.left + rect.width / 2) : 0);
-        const y = (!crossSite && m.ry != null)
-          ? Math.round(m.ry * window.innerHeight)
-          : (rect ? Math.round(rect.top + rect.height / 2) : 0);
+        const hasValidRect = rect && rect.width > 0 && rect.height > 0 && !isOverlay;
+        const x = hasValidRect
+          ? Math.round(rect.left + rect.width / 2)
+          : (m.rx != null ? Math.round(m.rx * window.innerWidth) : 0);
+        const y = hasValidRect
+          ? Math.round(rect.top + rect.height / 2)
+          : (m.ry != null ? Math.round(m.ry * window.innerHeight) : 0);
 
         const mouseOpts = {
           bubbles: true,
@@ -1263,7 +1342,9 @@ ipcRenderer.on('mirror-replay', (_e, m) => {
           screenX: x,
           screenY: y,
           button: 0,
-          buttons: 1
+          buttons: 1,
+          pointerType: 'touch',
+          isPrimary: true
         };
 
         // Dispatch TouchEvent for mobile touch handlers (e.g. SportyBet/Football mobile sheet & mask tap listeners)
@@ -1280,6 +1361,25 @@ ipcRenderer.on('mirror-replay', (_e, m) => {
         targetToClick.dispatchEvent(new PointerEvent('pointerup', mouseOpts));
         targetToClick.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
         targetToClick.click();
+
+        // Match navigation Nuxt router / URL fallback
+        if (m.semantic?.kind === 'match-nav' && m.semantic?.hrefPath) {
+          const targetPath = stripCountryPrefix(m.semantic.hrefPath);
+          setTimeout(() => {
+            try {
+              const curPath = stripCountryPrefix(location.pathname);
+              if (curPath !== targetPath) {
+                if (window.useNuxtApp && window.useNuxtApp().$router) {
+                  window.useNuxtApp().$router.push(m.semantic.hrefPath);
+                } else {
+                  location.href = m.semantic.hrefPath;
+                }
+              }
+            } catch (_) {
+              try { location.href = m.semantic.hrefPath; } catch (_) {}
+            }
+          }, 120);
+        }
 
         if (m.semantic?.action === 'place-bet') {
           triggerElementAction(targetToClick);

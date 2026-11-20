@@ -227,6 +227,22 @@ body {
   border: 1px solid var(--border-subtle);
 }
 
+.nav-badge-clickable {
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  font-family: inherit;
+}
+
+.nav-badge-clickable:hover {
+  filter: brightness(1.22);
+  transform: translateY(-0.5px);
+}
+
+.nav-badge-clickable:active {
+  transform: translateY(0.5px);
+}
+
 .nav-badge-update-ready {
   background: rgba(16, 185, 129, 0.15);
   color: #34d399;

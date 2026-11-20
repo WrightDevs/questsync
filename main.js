@@ -524,6 +524,37 @@ function layout() {
   }
 }
 
+let isNavSyncing = false;
+function syncNavigationFromLead(leadIndex, targetUrl) {
+  if (!options.windowSync || isNavSyncing) return;
+  const isLead = (activePaneIndex >= 0 ? leadIndex === activePaneIndex : leadIndex === 0);
+  if (!isLead) return;
+  if (!targetUrl || targetUrl === 'about:blank') return;
+  if (/deposit|login|my_accounts|cashier|profile/i.test(targetUrl)) return;
+
+  const leadProf = getPaneProfile(leadIndex);
+  if (!leadProf) return;
+
+  isNavSyncing = true;
+  try {
+    for (let j = 0; j < views.length; j++) {
+      if (j === leadIndex) continue;
+      const fView = views[j];
+      if (!fView || fView.webContents.isDestroyed()) continue;
+      const fProf = getPaneProfile(j);
+      if (fProf.site !== leadProf.site) continue;
+
+      const fCurUrl = fView.webContents.getURL();
+      const synchedUrl = rewriteCountryOnUrl(targetUrl, fProf.site, fProf.country);
+      if (fCurUrl !== synchedUrl) {
+        fView.webContents.loadURL(synchedUrl).catch(() => {});
+      }
+    }
+  } finally {
+    setTimeout(() => { isNavSyncing = false; }, 600);
+  }
+}
+
 function clearViews() {
   for (const v of views) {
     try {
@@ -666,13 +697,15 @@ function createViews(count) {
         }, 2200);
       }
     });
-    v.webContents.on('did-navigate', () => {
+    v.webContents.on('did-navigate', (_e, url) => {
       syncProfileFromView(i);
       sendPaneStates();
+      syncNavigationFromLead(i, url);
     });
-    v.webContents.on('did-navigate-in-page', () => {
+    v.webContents.on('did-navigate-in-page', (_e, url) => {
       syncProfileFromView(i);
       sendPaneStates();
+      syncNavigationFromLead(i, url);
     });
 
     const idx = i + 1;

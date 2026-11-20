@@ -9,6 +9,7 @@ export default function AppNav({
   todayBets = 0,
   todayTotal = '0.00',
   mirror = true,
+  onToggleMirror,
   statusMsg = '',
   updateStatus = { status: 'idle' },
   onInstallUpdate,
@@ -105,10 +106,16 @@ export default function AppNav({
           </span>
         )}
 
-        {/* Mirroring Indicator */}
-        <span className={`nav-badge ${mirror ? 'nav-badge-mirror-on' : 'nav-badge-muted'}`} title="Click Mirroring Status">
+        {/* Mirroring Indicator (One-Click Toggle) */}
+        <button
+          type="button"
+          onClick={onToggleMirror}
+          className={`nav-badge nav-badge-clickable ${mirror ? 'nav-badge-mirror-on' : 'nav-badge-muted'}`}
+          title={`Click Mirroring is ${mirror ? 'ACTIVE (Click to Pause)' : 'PAUSED (Click to Enable)'}`}
+          aria-label={`Toggle click mirroring. Current status: ${mirror ? 'ON' : 'OFF'}`}
+        >
           Mirror {mirror ? 'ON' : 'OFF'}
-        </span>
+        </button>
 
         {/* Daily Bets Volume */}
         <div className="nav-metric-pill" title="Today's total bets placed and volume">

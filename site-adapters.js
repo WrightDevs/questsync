@@ -344,7 +344,9 @@ function oddsReadCode(selector) {
         // Fast betslip single selection
         const fast = Array.from(document.querySelectorAll('[data-op="fast-betslip-container"]')).find(isVis);
         if (fast) {
-          const fastOdds = Array.from(fast.querySelectorAll('[data-op="betslip-outcome-odds-display"]')).find(isVis);
+          const fastOdds = Array.from(fast.querySelectorAll(
+            '[data-op="fast-betslip-single-content-right-area"], [data-op="fast-betslip-multiple-right-content"], [data-op="betslip-outcome-odds-display"], [class*="right-content" i], [class*="right-area" i]'
+          )).find(isVis);
           if (fastOdds) {
             const o = parseOddsText(fastOdds.textContent);
             if (o) return o;
@@ -480,6 +482,9 @@ function FOOTBALL_SYNC_STAKE_SNIPPET(valVar, elVar) {
             if (_pinia) {
               const _store = _pinia._s?.get('betslip_stake') || _pinia._s?.get('betslip_real');
               if (_store) {
+                if (typeof _store.updateRealStakes === 'function') {
+                  try { _store.updateRealStakes(_fbVal); } catch (_) {}
+                }
                 if (typeof _store.updateDefaultStake === 'function') {
                   try { _store.updateDefaultStake(_fbVal); } catch (_) {}
                 }
@@ -792,6 +797,12 @@ const PLACE_BET_JS = `
         'button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-wrap"] [data-op="betslip-confirm"], button:has([data-cms-key="confirm"]), [data-cms-key="confirm"], [data-op="betslip-confirm-to-pay-btn"]'
       )).find(b => isVis(b) && !isDepositElement(b));
       if (exactSportyConfirm) return exactSportyConfirm;
+
+      // 0b. Direct match on Football.com confirm button:
+      const exactFootballConfirm = Array.from(document.querySelectorAll(
+        'button[data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-sheet"] [data-op*="confirm" i]'
+      )).find(b => isVis(b) && !isDepositElement(b));
+      if (exactFootballConfirm) return exactFootballConfirm;
 
       // 1. Search inside any open dialog/modal container first (highest priority)
       const modalContainers = Array.from(document.querySelectorAll(

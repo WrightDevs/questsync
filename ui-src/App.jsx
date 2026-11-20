@@ -898,6 +898,7 @@ export default function App() {
         todayBets={todayBets}
         todayTotal={todayTotal}
         mirror={mirror}
+        onToggleMirror={handleToggleMirror}
         statusMsg={statusMsg}
         updateStatus={updateStatus}
         onInstallUpdate={handleInstallUpdate}
