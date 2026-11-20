@@ -3402,46 +3402,33 @@ async function enforceLicense() {
     const portalUrl = result.portalUrl || 'https://questsync-licensing-portal.vercel.app';
     const mid = result.mid || (result.reason?.match(/[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}/i)?.[0]) || '';
 
+    const detailText = mid
+      ? `This computer is not approved or your subscription has expired.\n\nComputer ID: ${mid}\n\nQuestSync Pro licenses are sold and renewed exclusively through authorized retailers.\nPlease copy your Computer ID and text it to the retailer who provided your software to activate or renew.`
+      : (result.reason || 'Access not available.');
+
     const choice = dialog.showMessageBoxSync({
       type: 'warning',
       title: 'QuestSync Pro — Subscription Required',
       message: 'Active Subscription Required',
-      detail: mid
-        ? `This computer is not approved or your subscription has expired.\n\nComputer ID: ${mid}\n\nClick "Buy License Online" to choose a plan and activate this device automatically.`
-        : (result.reason || 'Access not available.'),
-      buttons: ['Buy License Online', 'Copy Computer ID', 'Check Again', 'Exit'],
+      detail: detailText,
+      buttons: ['Copy Computer ID', 'How to Activate', 'Check Again', 'Exit'],
       defaultId: 0,
       cancelId: 3,
       noLink: true
     });
 
     if (choice === 0) {
-      const buyUrl = mid ? `${portalUrl}/?mid=${encodeURIComponent(mid)}` : portalUrl;
-      shell.openExternal(buyUrl);
-
-      const waitChoice = dialog.showMessageBoxSync({
-        type: 'info',
-        title: 'Complete Your Purchase',
-        message: 'Your browser has opened to the QuestSync activation portal.',
-        detail: 'After completing payment on Paystack, click "I Have Paid" to unlock your software immediately.',
-        buttons: ['I Have Paid - Unlock App', 'Exit'],
-        defaultId: 0,
-        cancelId: 1
-      });
-
-      if (waitChoice === 0) {
-        return await enforceLicense();
-      } else {
-        app.quit();
-        return false;
-      }
-    } else if (choice === 1) {
       if (mid) clipboard.writeText(mid);
       dialog.showMessageBoxSync({
         type: 'info',
-        title: 'Copied',
-        message: `Computer ID ${mid} copied to clipboard.`
+        title: 'Copied to Clipboard',
+        message: 'Computer ID Copied!',
+        detail: `Computer ID: ${mid}\n\nSimply paste and text this Computer ID to the retailer who provided your software.\nOnce they activate it, click "Check Again".`
       });
+      return await enforceLicense();
+    } else if (choice === 1) {
+      const guideUrl = mid ? `${portalUrl}/?mid=${encodeURIComponent(mid)}` : portalUrl;
+      shell.openExternal(guideUrl);
       return await enforceLicense();
     } else if (choice === 2) {
       return await enforceLicense();
