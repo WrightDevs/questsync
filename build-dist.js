@@ -288,7 +288,7 @@ async function main() {
       '--title',
       `QuestSync ${versionTag}`,
       '--notes',
-      `Release ${versionTag}: Rapid bet placement confirmation observer, Betano monitor setting fix, and self-serve licensing portal integration.`,
+      `Release ${versionTag}: Football.com click mirroring stabilization, floating betslip indicator fix, screen navigation sync, real-time Pinia stake sync, and one-click click mirroring quick-toggle.`,
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
     if (pubRes.status === 0) {
