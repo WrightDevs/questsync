@@ -1,4 +1,4 @@
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, webFrame } = require('electron');
 
 let pickKind = null; // 'odds' | 'stake' while the element picker is active
 let hoverBox = null;
@@ -964,9 +964,19 @@ function clickElementFast(el) {
   try { btn.click(); } catch (_) {}
 }
 
+let instantRebetScheduled = false;
+function scheduleInstantRebetCheck() {
+  if (!autoRebetArmed || instantRebetScheduled) return;
+  instantRebetScheduled = true;
+  requestAnimationFrame(() => {
+    instantRebetScheduled = false;
+    if (autoRebetArmed) tryClickInstantRebet();
+  });
+}
+
 try {
   const instantRebetObs = new MutationObserver(() => {
-    if (autoRebetArmed) tryClickInstantRebet();
+    scheduleInstantRebetCheck();
   });
   if (document.documentElement) {
     instantRebetObs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-op'] });
@@ -1046,6 +1056,47 @@ document.addEventListener('keydown', (e) => {
   }
 }, { capture: true, passive: true });
 
+function triggerFootballBetslipOpen() {
+  try {
+    if (typeof webFrame !== 'undefined' && webFrame.executeJavaScript) {
+      webFrame.executeJavaScript(`
+        (() => {
+          try {
+            let pinia = null;
+            if (typeof window.useNuxtApp === 'function') {
+              try { pinia = window.useNuxtApp().$pinia; } catch (_) {}
+            }
+            if (!pinia) {
+              const rootEl = document.querySelector('#__nuxt') || document.querySelector('#app') || document.querySelector('[data-op="betslip-icon"]') || document.body.firstElementChild;
+              let cur = rootEl;
+              while (cur && cur !== document.documentElement) {
+                const comp = cur.__vueParentComponent || cur.__vnode?.component || cur._vnode?.component;
+                if (comp) {
+                  pinia = comp.appContext?.config?.globalProperties?.$pinia || comp.appContext?.provides?.[Symbol.for('pinia')] || comp.appContext?.provides?.pinia;
+                  if (pinia) break;
+                }
+                cur = cur.parentElement;
+              }
+            }
+            if (pinia) {
+              const uiStore = pinia._s?.get('betslip_ui_state');
+              if (uiStore && typeof uiStore.openBetslipBottomSheet === 'function') {
+                uiStore.openBetslipBottomSheet();
+                return true;
+              }
+            }
+          } catch (_) {}
+          try {
+            const icon = document.querySelector('[data-op="betslip-icon"], [data-op*="betslip-icon" i]');
+            if (icon) icon.click();
+          } catch (_) {}
+          return false;
+        })()
+      `).catch(() => {});
+    }
+  } catch (_) {}
+}
+
 function triggerElementAction(el) {
   if (!el) return;
   // 1. SportyBet safeTap directive execution
@@ -1083,15 +1134,8 @@ function triggerElementAction(el) {
   }
 
   // 3. Football.com open betslip bottom sheet support
-  if (el.closest && el.closest('[data-op="betslip-icon"], [data-op*="betslip-icon" i]')) {
-    try {
-      const nuxtEl = document.querySelector('#__nuxt') || document.querySelector('#app');
-      const pinia = nuxtEl?.__vue_app__?.config?.globalProperties?.$pinia;
-      const uiStore = pinia?._s?.get('betslip_ui_state');
-      if (uiStore && typeof uiStore.openBetslipBottomSheet === 'function') {
-        uiStore.openBetslipBottomSheet();
-      }
-    } catch (_) {}
+  if (el.closest && el.closest('[data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="bet-slip-odds"]')) {
+    triggerFootballBetslipOpen();
   }
 
   // 4. Native DOM click
@@ -1221,6 +1265,9 @@ function injectConfirmSuppressionStyles() {
 // Automatically ensure Cashout Confirm button is scrolled into view when cashout panel opens
 function ensureCashoutConfirmInView() {
   try {
+    const hasCashoutOrDialog = document.querySelector('.m-cashout, [class*="cashout" i], [data-op*="cashout" i], .bottom-panel-drawer, .van-popup--bottom');
+    if (!hasCashoutOrDialog) return;
+
     const cashoutRoots = Array.from(document.querySelectorAll(
       '.m-cashout, [class*="cashout" i], [data-op*="cashout" i], .bottom-panel-drawer, .van-popup--bottom'
     ));
@@ -1243,6 +1290,16 @@ function ensureCashoutConfirmInView() {
   } catch (_) {}
 }
 
+let cashoutScheduled = false;
+function scheduleCashoutConfirmInView() {
+  if (cashoutScheduled) return;
+  cashoutScheduled = true;
+  requestAnimationFrame(() => {
+    cashoutScheduled = false;
+    ensureCashoutConfirmInView();
+  });
+}
+
 if (typeof document !== 'undefined') {
   injectConfirmSuppressionStyles();
   if (document.readyState === 'loading') {
@@ -1254,7 +1311,7 @@ if (typeof document !== 'undefined') {
   // Watch for cashout dialog appearances to bring confirm button immediately into view
   try {
     const cashoutObserver = new MutationObserver(() => {
-      ensureCashoutConfirmInView();
+      scheduleCashoutConfirmInView();
     });
     const attachObs = () => {
       if (document.body) {
@@ -1415,6 +1472,13 @@ document.addEventListener('click', (e) => {
       wireBetslipAutoConfirm(slipActionBtn);
     }
   }
+
+  // Fast direct open when clicking the floating betslip circle on Football.com
+  const fbBetslipIcon = target.closest && target.closest('[data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="bet-slip-odds"]');
+  if (fbBetslipIcon && /football\.com/i.test(location.hostname || '')) {
+    triggerFootballBetslipOpen();
+  }
+
   const isConverter = target.name === 'c2c-converter-input' || !!target.closest('[class*="c2c-converter" i]');
   const isStakeField = !isConverter && !!target.closest(
     '.m-betslip, [class*="betslip" i], [class*="slip" i], .m-input-keyboard-wrapper, .m-keybord-input, [class*="stake" i], [class*="keyboard" i], [data-op="betslip-keyboard-trigger"], .stake-keyboard, [data-op="appendKey"], [data-op="clearAll"], [data-op="removeLast"], [data-op="done-bottom"]'

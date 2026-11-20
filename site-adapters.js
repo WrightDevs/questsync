@@ -146,7 +146,31 @@ const FIND_STAKE_INPUT_JS = `
       const hasSheet = !!Array.from(document.querySelectorAll('[data-op="betslip-bottom-sheet"]')).find(isVis);
       const hasFast = !!Array.from(document.querySelectorAll('[data-op="fast-betslip-container"]')).find(isVis);
       if (countBadge && !hasSheet && !hasFast) {
-        const bar = countBadge.closest('button, [role="button"], [data-op*="betslip" i]') || countBadge;
+        try {
+          const _nuxtEl = document.querySelector('#__nuxt') || document.querySelector('#app') || countBadge;
+          let _pinia = null;
+          if (typeof window.useNuxtApp === 'function') {
+            try { _pinia = window.useNuxtApp().$pinia; } catch (_) {}
+          }
+          if (!_pinia) {
+            let _cur = _nuxtEl;
+            while (_cur && _cur !== document.documentElement) {
+              const _comp = _cur.__vueParentComponent || _cur.__vnode?.component || _cur._vnode?.component;
+              if (_comp) {
+                _pinia = _comp.appContext?.config?.globalProperties?.$pinia || _comp.appContext?.provides?.[Symbol.for('pinia')] || _comp.appContext?.provides?.pinia;
+                if (_pinia) break;
+              }
+              _cur = _cur.parentElement;
+            }
+          }
+          if (_pinia) {
+            const _uiStore = _pinia._s?.get('betslip_ui_state');
+            if (_uiStore && typeof _uiStore.openBetslipBottomSheet === 'function') {
+              _uiStore.openBetslipBottomSheet();
+            }
+          }
+        } catch (_) {}
+        const bar = countBadge.closest('section, button, [role="button"], [data-op*="betslip" i]') || countBadge;
         if (bar && !bar.closest('[data-op="fast-betslip-single-close"], [data-op="betslip-remove-all"]')) {
           try { bar.click(); } catch (_) {}
         }
