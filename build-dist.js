@@ -276,6 +276,12 @@ async function main() {
     const versionTag = `v${pkg.version || '1.0.0'}`;
     const exeName = `QuestSync-Setup-${pkg.version || '1.0.0'}.exe`;
 
+    let targetCommit = 'f8772a2';
+    try {
+      const rev = execSync('git rev-parse origin/master', { cwd: ROOT, encoding: 'utf8' }).trim();
+      if (rev) targetCommit = rev;
+    } catch (_) {}
+
     const ghArgs = [
       'release',
       'create',
@@ -283,12 +289,14 @@ async function main() {
       path.join('release', exeName),
       path.join('release', `${exeName}.blockmap`),
       path.join('release', 'latest.yml'),
+      '--target',
+      targetCommit,
       '--repo',
       'WrightDevs/questsync',
       '--title',
       `QuestSync ${versionTag}`,
       '--notes',
-      `Release ${versionTag}: Semantic and identity-based click mirroring for rapid market switching, Football.com floating betslip opener and UI smoothness optimizations, and full Cashout confirmation bottom-panel visibility and scrollability.`,
+      `Release ${versionTag}: Restored coordinate-based click mirroring for exact odds market alignment, decoupled SPA in-page navigation from full browser reloads, and fixed automated multi-pane sign-in for offscreen account views.`,
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
     if (pubRes.status === 0) {

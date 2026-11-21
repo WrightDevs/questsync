@@ -63,24 +63,24 @@ function updateViewsVisibility() {
         if (typeof v.setVisible === 'function') v.setVisible(false);
         // Maintain a valid mobile viewport offscreen so DOM measurements and login inputs remain functional
         v.setBounds({ x: -10000, y: -10000, width: 380, height: 800 });
-      } catch (_) {}
+      } catch (_) { }
     });
     if (activeMonitorV && !activeMonitorV.webContents.isDestroyed()) {
       try {
         if (typeof activeMonitorV.setVisible === 'function') activeMonitorV.setVisible(false);
         activeMonitorV.setBounds({ x: -10000, y: -10000, width: 380, height: 800 });
-      } catch (_) {}
+      } catch (_) { }
     }
   } else {
     views.forEach((v) => {
       try {
         if (typeof v.setVisible === 'function') v.setVisible(true);
-      } catch (_) {}
+      } catch (_) { }
     });
     if (activeMonitorV && !activeMonitorV.webContents.isDestroyed()) {
       try {
         if (typeof activeMonitorV.setVisible === 'function') activeMonitorV.setVisible(true);
-      } catch (_) {}
+      } catch (_) { }
     }
     layout();
   }
@@ -564,7 +564,7 @@ function syncNavigationFromLead(leadIndex, targetUrl) {
       if (stripHashAndParams(fCurUrl) === stripHashAndParams(synchedUrl)) continue;
 
       if (fCurUrl !== synchedUrl) {
-        fView.webContents.loadURL(synchedUrl).catch(() => {});
+        fView.webContents.loadURL(synchedUrl).catch(() => { });
       }
     }
   } finally {
@@ -609,7 +609,7 @@ function createViews(count) {
       paneSession.cookies.on('changed', () => {
         clearTimeout(flushTimer);
         flushTimer = setTimeout(() => {
-          try { paneSession.cookies.flushStore().catch(() => {}); } catch (_) {}
+          try { paneSession.cookies.flushStore().catch(() => { }); } catch (_) { }
         }, 1500);
       });
     }
@@ -1131,7 +1131,7 @@ ipcMain.handle('ui:get-account-statuses', async () => {
           })()`).catch(() => false);
           isLoggedIn = chk;
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     statuses.push({ index: i, site: prof.site, country: prof.country, balance, isLoggedIn });
   }
@@ -1341,7 +1341,7 @@ async function performLogin(v, phone, password, paneIndex = -1) {
         const isHome = curUrl === homeUrl || curUrl === `https://www.sportybet.com/${country}/m` || curUrl.startsWith(`${homeUrl}#`);
         if (!isHome) {
           console.log(`[AutoLogin] Pane ${idx + 1}: Navigating to login home: ${homeUrl}`);
-          await v.webContents.loadURL(homeUrl).catch(() => {});
+          await v.webContents.loadURL(homeUrl).catch(() => { });
           await sleep(2000);
         }
         // Force-open the SportyBet login dialog:
@@ -1354,13 +1354,13 @@ async function performLogin(v, phone, password, paneIndex = -1) {
           try { location.hash = '#login'; } catch (_) {}
           const btn = document.querySelector('[data-op="nav-login"], .m-btn-login, .m-btn--login, [data-cms-key="login"]');
           if (btn) try { btn.click(); } catch (_) {}
-        })()`).catch(() => {});
+        })()`).catch(() => { });
         await sleep(500);
       } else {
         const loginUrl = `https://www.football.com/${country}/m/login`;
         if (!curUrl.includes('login')) {
           console.log(`[AutoLogin] Pane ${idx + 1}: Loading login page: ${loginUrl}`);
-          await v.webContents.loadURL(loginUrl).catch(() => {});
+          await v.webContents.loadURL(loginUrl).catch(() => { });
           await sleep(2000);
         }
       }
@@ -2155,7 +2155,7 @@ ipcMain.on('view:stake-sync', (e, payload) => {
   // Concurrently inject this updated stake into all follower views INSTANTLY without manual keypad delays!
   views.forEach((v) => {
     if (!v || v.webContents.isDestroyed() || v.webContents.id === senderId) return;
-    v.webContents.executeJavaScript(FAST_SET_STAKE_JS(val)).catch(() => {});
+    v.webContents.executeJavaScript(FAST_SET_STAKE_JS(val)).catch(() => { });
   });
 
   // Pre-calculate decremented rebet stake based on this typed value
@@ -3074,8 +3074,8 @@ async function runPaneAttackLoop(v, i, targetCycles) {
   const minStakeNum = parseFloat(minStakeForProfile(prof.site, prof.country)) || (isGh ? 0.1 : 10);
 
   // Arm instant Rebet watcher in this view's preload (<0.1ms mutation observer)
-  try { v.webContents.send('set-auto-rebet-armed', true); } catch (_) {}
-  try { await v.webContents.executeJavaScript('window.__mfas_auto_rebet_stop = false;').catch(() => {}); } catch (_) {}
+  try { v.webContents.send('set-auto-rebet-armed', true); } catch (_) { }
+  try { await v.webContents.executeJavaScript('window.__mfas_auto_rebet_stop = false;').catch(() => { }); } catch (_) { }
 
   // Pre-flight check: if this pane already has a Bet Successful modal open, click Rebet immediately
   try {
@@ -3085,7 +3085,7 @@ async function runPaneAttackLoop(v, i, targetCycles) {
       return false;
     })()`).catch(() => false);
     if (hasModal) await sleep(120);
-  } catch (_) {}
+  } catch (_) { }
 
   let currentStake = lastStakeByView.get(v.webContents.id) || parsePositiveStake(currentSharedStake) || 10.0;
 
@@ -3114,12 +3114,12 @@ async function runPaneAttackLoop(v, i, targetCycles) {
       // Keep all panes synchronized at the same ms without using manual keypad
       views.forEach((otherV) => {
         if (!otherV || otherV.webContents.isDestroyed() || otherV.webContents.id === v.webContents.id) return;
-        otherV.webContents.executeJavaScript(FAST_SET_STAKE_JS(stakeToApply)).catch(() => {});
+        otherV.webContents.executeJavaScript(FAST_SET_STAKE_JS(stakeToApply)).catch(() => { });
       });
 
       try {
         if (win && !win.isDestroyed()) win.webContents.send('ui:stake-synced', currentStake);
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // Run rapid cycle (Place Bet -> Confirm -> Rebet -> Betslip ready)
@@ -3167,7 +3167,7 @@ async function runPaneAttackLoop(v, i, targetCycles) {
     }
   }
 
-  try { v.webContents.send('set-auto-rebet-armed', false); } catch (_) {}
+  try { v.webContents.send('set-auto-rebet-armed', false); } catch (_) { }
 }
 
 async function startAutoRebet(cycles) {
@@ -3182,8 +3182,8 @@ async function startAutoRebet(cycles) {
   // Ensure stop flag is reset across all views
   views.forEach((v) => {
     try {
-      v.webContents.executeJavaScript('window.__mfas_auto_rebet_stop = false;').catch(() => {});
-    } catch (_) {}
+      v.webContents.executeJavaScript('window.__mfas_auto_rebet_stop = false;').catch(() => { });
+    } catch (_) { }
   });
 
   // Launch independent, parallel, non-blocking attack loop for EVERY view simultaneously!
@@ -3203,8 +3203,8 @@ function stopAutoRebet() {
   views.forEach((v) => {
     try {
       v.webContents.send('set-auto-rebet-armed', false);
-      v.webContents.executeJavaScript('window.__mfas_auto_rebet_stop = true;').catch(() => {});
-    } catch (_) {}
+      v.webContents.executeJavaScript('window.__mfas_auto_rebet_stop = true;').catch(() => { });
+    } catch (_) { }
   });
   emitAutoRebetState('Auto-Rebet stopped');
   return { ok: true, running: false };
@@ -3514,12 +3514,12 @@ async function flushAllCookies() {
   try {
     const promises = views.map(v => {
       if (v && !v.webContents.isDestroyed() && v.webContents.session && v.webContents.session.cookies) {
-        return v.webContents.session.cookies.flushStore().catch(() => {});
+        return v.webContents.session.cookies.flushStore().catch(() => { });
       }
       return Promise.resolve();
     });
     await Promise.all(promises);
-  } catch (_) {}
+  } catch (_) { }
 }
 
 app.whenReady().then(async () => {
