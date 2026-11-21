@@ -94,6 +94,7 @@ export default function SettingsPage({
   const logContainerRef = useRef(null);
 
   const mSite = betanoConfig?.site || 'betano';
+  const mCountry = betanoConfig?.country || 'ng';
   const bMode = betanoConfig?.mode || 'dock';
   const bSide = betanoConfig?.side || 'right';
   const bWidth = betanoConfig?.width ?? 340;
@@ -524,6 +525,29 @@ export default function SettingsPage({
                   onClick={() => onUpdateBetanoConfig({ site: 'betpawa' })}
                 >
                   betPawa
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-row">
+              <div className="row-info">
+                <span className="row-title">Monitor Country</span>
+                <span className="row-desc">Independent country for odds benchmark monitor (does not affect panes)</span>
+              </div>
+              <div className="seg-group">
+                <button
+                  type="button"
+                  className={`seg-btn ${mCountry === 'ng' ? 'active' : ''}`}
+                  onClick={() => onUpdateBetanoConfig({ country: 'ng' })}
+                >
+                  Nigeria (NG)
+                </button>
+                <button
+                  type="button"
+                  className={`seg-btn ${mCountry === 'gh' ? 'active' : ''}`}
+                  onClick={() => onUpdateBetanoConfig({ country: 'gh' })}
+                >
+                  Ghana (GH)
                 </button>
               </div>
             </div>

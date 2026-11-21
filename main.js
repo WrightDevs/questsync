@@ -92,6 +92,7 @@ let monitorView = null; // docked monitor view inside main window (when monitorC
 let monitorBounds = null;
 const monitorConfig = {
   site: 'betano',  // 'betano' | 'betpawa'
+  country: 'ng',   // independent monitor country ('ng' | 'gh') - NEVER coupled to panes
   open: false,
   mode: 'dock',    // 'dock' | 'float'
   side: 'left',    // 'left' | 'right' (sidebar docked on left by default)
@@ -218,6 +219,9 @@ function loadUserSettings() {
       }
       if (s.monitorConfig && typeof s.monitorConfig === 'object') {
         Object.assign(monitorConfig, s.monitorConfig);
+        if (s.monitorConfig.country === 'gh' || s.monitorConfig.country === 'ng') {
+          monitorConfig.country = s.monitorConfig.country;
+        }
       }
       if (s.cashoutConfig && typeof s.cashoutConfig === 'object') {
         Object.assign(cashoutConfig, s.cashoutConfig);
@@ -2262,7 +2266,13 @@ async function handleSportyMatchSync(data) {
     }
   } else {
     // BetPawa
-    const pawaCountry = currentCountry === 'gh' ? 'gh' : 'ng';
+    // Monitor country is strictly independent of panes!
+    let pawaCountry = monitorConfig.country || 'ng';
+    try {
+      const curU = wc.getURL();
+      if (curU && /betpawa\.com\.gh/i.test(curU)) pawaCountry = 'gh';
+      else if (curU && /betpawa\.ng/i.test(curU)) pawaCountry = 'ng';
+    } catch (_) {}
     const base = pawaCountry === 'gh' ? 'https://www.betpawa.com.gh' : 'https://www.betpawa.ng';
     const searchUrl = `${base}/search?q=${encodeURIComponent(data.team1 || q)}`;
     wc.loadURL(searchUrl).catch(() => { });
@@ -2410,7 +2420,7 @@ function getActiveMonitorWebContents() {
 
 function getMonitorTargetUrl(site = monitorConfig.site) {
   const s = site === 'betpawa' ? 'betpawa' : 'betano';
-  const c = currentCountry === 'gh' ? 'gh' : 'ng';
+  const c = monitorConfig.country === 'gh' ? 'gh' : 'ng';
   return (MONITOR_URLS[s] && MONITOR_URLS[s][c]) || (s === 'betpawa' ? 'https://www.betpawa.ng/' : 'https://www.betano.ng/');
 }
 
@@ -2733,8 +2743,10 @@ ipcMain.handle('ui:set-monitor-config', (_e, patch) => {
   const prevMode = monitorConfig.mode;
   const prevUA = monitorConfig.mobileUA;
   const prevSite = monitorConfig.site;
+  const prevCountry = monitorConfig.country;
 
   if (patch.site === 'betano' || patch.site === 'betpawa') monitorConfig.site = patch.site;
+  if (patch.country === 'ng' || patch.country === 'gh') monitorConfig.country = patch.country;
   if (patch.mode === 'dock' || patch.mode === 'float') monitorConfig.mode = patch.mode;
   if (patch.side === 'left' || patch.side === 'right') monitorConfig.side = patch.side;
   if (patch.width !== undefined) {
@@ -2755,8 +2767,9 @@ ipcMain.handle('ui:set-monitor-config', (_e, patch) => {
 
   const isAlive = !!getActiveMonitorWebContents();
   const siteChanged = prevSite !== monitorConfig.site;
-  if (!isAlive || prevMode !== monitorConfig.mode || siteChanged) {
-    ensureMonitorOpen(siteChanged ? getMonitorTargetUrl() : getMonitorUrl());
+  const countryChanged = prevCountry !== monitorConfig.country;
+  if (!isAlive || prevMode !== monitorConfig.mode || siteChanged || countryChanged) {
+    ensureMonitorOpen((siteChanged || countryChanged) ? getMonitorTargetUrl() : getMonitorUrl());
   } else {
     const wc = getActiveMonitorWebContents();
     if (wc) {

@@ -1650,50 +1650,52 @@ function findTarget(m) {
     return findCrossSiteTarget(m);
   }
 
-  const x = m.rx != null ? Math.round(m.rx * window.innerWidth) : null;
-  const y = m.ry != null ? Math.round(m.ry * window.innerHeight) : null;
-  let el = null;
-
-  // 1. PRIMARY: Exact screen coordinate element lookup.
-  // In QuestSync, all panes run identical viewport dimensions, zoom, and synchronized scrolling.
-  // Coordinates hit the exact odds market, button, tab, accordion, or control directly across panes.
-  if (x != null && y != null) {
-    const pointEl = document.elementFromPoint(x, y);
-    if (pointEl && pointEl !== document.documentElement && pointEl !== document.body) {
-      const clickableCandidate = pointEl.closest ? pointEl.closest(CLICKABLE_REPLAY_SEL) : null;
-      if (clickableCandidate) {
-        el = clickableCandidate;
-      } else if (!m.clickableSelector) {
-        // Overlay mask, backdrop, dialog container, or non-button element
-        el = pointEl;
-      } else {
-        el = pointEl;
-      }
-    }
+  // 0. For outcomes (odds selections), market headers, market tabs, and match navigation,
+  // semantic identity matching is highest fidelity
+  if (m.semantic && (m.semantic.kind === 'outcome' || m.semantic.kind === 'market-header' || m.semantic.kind === 'market-tab' || m.semantic.kind === 'match-nav')) {
+    const semHit = findCrossSiteTarget(m);
+    if (semHit) return semHit;
   }
 
-  // 2. Same-site fallback if coordinate element was missing or bare document
-  if (!el && m.clickableSelector) {
+  let el = null;
+
+  // 1. Selector-based lookup: specific button or interactive control
+  if (m.clickableSelector) {
     try { el = document.querySelector(m.clickableSelector); } catch (_) {}
   }
   if (!el && m.smartSelector) {
     try { el = document.querySelector(m.smartSelector); } catch (_) {}
   }
 
-  // 3. Fallback to css path selector
-  if (!el && m.selector) {
-    try { el = document.querySelector(m.selector); } catch (_) {}
-  }
-
-  // 4. Semantic fallback across cards / country variants
+  // 1b. Same-site country-agnostic semantic fallback across cards / country variants
   if (!el && m.semantic) {
     el = findCrossSiteTarget(m);
   }
 
-  // 5. Final coordinate element fallback (e.g. backdrop overlays)
-  if (!el && x != null && y != null) {
+  // 2. Fallback to css path selector
+  if (!el && m.selector) {
+    try { el = document.querySelector(m.selector); } catch (_) {}
+  }
+
+  // 3. STRICT COORDINATE SAFETY:
+  // ONLY allow coordinate fallback for non-interactive modal backdrop dismissals (overlay masks)!
+  // NEVER blindly click coordinates for odds selections, outcomes, markets, accordions, tabs, or buttons!
+  const isInteractive = !!(m.clickableSelector || (m.semantic && m.semantic.kind !== 'generic'));
+  if (!el && !isInteractive && m.isInsideModal && m.rx != null && m.ry != null) {
+    const x = Math.round(m.rx * window.innerWidth);
+    const y = Math.round(m.ry * window.innerHeight);
     const candidate = document.elementFromPoint(x, y);
-    if (candidate) el = candidate;
+    const isOverlay = candidate && candidate.matches && candidate.matches(
+      'body, html, [class*="mask" i], [class*="overlay" i], [class*="backdrop" i]'
+    );
+    if (isOverlay) el = candidate;
+  }
+
+  if (!el && isInteractive) {
+    console.warn('[MirrorReplay] could not mirror: element not found on pane, skipping to prevent desync', {
+      semantic: m.semantic,
+      clickableSelector: m.clickableSelector
+    });
   }
 
   return el;
