@@ -28,9 +28,9 @@ function getAutoUpdater() {
 }
 
 function broadcastStatus(patch) {
-  let appVer = '1.0.4';
+  let appVer = '1.0.5';
   try {
-    appVer = app.getVersion() || '1.0.4';
+    appVer = app.getVersion() || '1.0.5';
   } catch (_) {}
   currentStatus = {
     ...currentStatus,

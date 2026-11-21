@@ -288,7 +288,7 @@ async function main() {
       '--title',
       `QuestSync ${versionTag}`,
       '--notes',
-      `Release ${versionTag}: Football.com click mirroring stabilization, floating betslip indicator fix, screen navigation sync, real-time Pinia stake sync, and one-click click mirroring quick-toggle.`,
+      `Release ${versionTag}: Semantic and identity-based click mirroring for rapid market switching, Football.com floating betslip opener and UI smoothness optimizations, and full Cashout confirmation bottom-panel visibility and scrollability.`,
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
     if (pubRes.status === 0) {
