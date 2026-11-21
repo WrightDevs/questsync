@@ -127,7 +127,7 @@ export default function SettingsDrawer({
               <span>{autoRebetOnSpace ? 'Armed' : 'Single Bet'}</span>
             </button>
           </div>
-          <div className="drawer-row">
+          <div className={`drawer-row ${!autoRebetOnSpace ? 'is-disabled' : ''}`}>
             <span className="drawer-label">Auto-Rebet Cycles</span>
             <input
               className="inp inp-num"
@@ -135,6 +135,7 @@ export default function SettingsDrawer({
               min={1}
               max={99}
               value={autoRebetCycles}
+              disabled={!autoRebetOnSpace}
               onChange={(e) => onAutoRebetCyclesChange(e.target.value)}
             />
           </div>

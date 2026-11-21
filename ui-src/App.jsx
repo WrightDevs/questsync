@@ -135,7 +135,7 @@ export default function App() {
   const [paneStates, setPaneStates] = useState([]);
   const [profitRows, setProfitRows] = useState([]);
   const [layoutGeometry, setLayoutGeometry] = useState(null);
-  const [statusMsg, setStatusMsg] = useState('Ready | Space: Rapid Attack | Enter: Rebet | Alt+C: Cashout All');
+  const [statusMsg, setStatusMsg] = useState('Ready | Enter: Single Bet | Space: Armed Mode | Alt+C: Cashout All');
 
   // ─── Welcome / Notification Board Guide Modal ───
   const [showGuide, setShowGuide] = useState(() => {
@@ -507,7 +507,7 @@ export default function App() {
       } else if ((e.key === 'Enter' || e.code === 'NumpadEnter') && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
         if (!isControl) {
           e.preventDefault();
-          window.api.rebet && window.api.rebet();
+          handlePlaceBet();
         }
       } else if ((e.altKey && e.key.toLowerCase() === 'c') || e.key === 'F9') {
         e.preventDefault();
@@ -737,7 +737,7 @@ export default function App() {
     if (window.api && window.api.saveUserSettings) {
       window.api.saveUserSettings({ hotkeysEnabled: next });
     }
-    setStatusMsg(next ? 'Hotkeys enabled (Space = Rapid Attack, Enter = Rebet, Alt+C = Cashout)' : 'Hotkeys disabled');
+    setStatusMsg(next ? 'Hotkeys enabled (Enter = Single Bet, Space = Mode Action, Alt+C = Cashout)' : 'Hotkeys disabled');
   };
 
   const handleRebet = async () => {

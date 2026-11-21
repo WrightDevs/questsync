@@ -695,7 +695,7 @@ function createViews(count) {
       } else if ((input.key === 'Enter' || input.code === 'NumpadEnter') && !input.alt && !input.meta && !input.shift) {
         if (!viewEditableFocus.get(v.webContents.id)) {
           event.preventDefault();
-          if (!input.isAutoRepeat) triggerRebet('Enter');
+          if (!input.isAutoRepeat) triggerPlaceBet('Enter');
         }
       } else if ((input.alt && k === 'c') || input.key === 'F9') {
         event.preventDefault();

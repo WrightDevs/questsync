@@ -522,6 +522,15 @@ kbd {
   border-color: var(--border-focus);
 }
 
+.inp:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-disabled);
+  pointer-events: none;
+}
+
 .inp-url {
   flex: 1;
   min-width: 140px;
@@ -1205,6 +1214,24 @@ kbd {
 .settings-row:last-child {
   padding-bottom: 0;
   border-bottom: none;
+}
+
+.settings-row.is-disabled {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+.settings-row.is-disabled .row-title {
+  color: var(--text-disabled);
+}
+
+.settings-row.is-disabled .row-desc {
+  color: var(--text-disabled);
+}
+
+.drawer-row.is-disabled {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
 }
 
 .row-info {

@@ -420,23 +420,12 @@ export default function SettingsPage({
 
             <div className="settings-row">
               <div className="row-info">
-                <span className="row-title">Rapid Attack Cycles</span>
-                <span className="row-desc">Number of consecutive Place Bet → Confirm → Rebet cycles</span>
-              </div>
-              <input
-                className="inp inp-num"
-                type="number"
-                min={1}
-                max={99}
-                value={autoRebetCycles}
-                onChange={(e) => onAutoRebetCyclesChange(e.target.value)}
-              />
-            </div>
-
-            <div className="settings-row">
-              <div className="row-info">
-                <span className="row-title">Spacebar Rapid Attack</span>
-                <span className="row-desc">Hitting Spacebar triggers full Rapid Attack cycles</span>
+                <span className="row-title">Spacebar Betting Mode</span>
+                <span className="row-desc">
+                  {autoRebetOnSpace
+                    ? 'Spacebar triggers Rapid Attack continuous cycles'
+                    : 'Spacebar triggers Single Bet (exactly one pass: Place Bet → Confirm)'}
+                </span>
               </div>
               <button
                 type="button"
@@ -444,8 +433,28 @@ export default function SettingsPage({
                 onClick={onToggleAutoRebetOnSpace}
               >
                 <span className="indicator" />
-                <span>{autoRebetOnSpace ? 'Armed' : 'Single Bet'}</span>
+                <span>{autoRebetOnSpace ? 'Rapid Attack' : 'Single Bet'}</span>
               </button>
+            </div>
+
+            <div className={`settings-row ${!autoRebetOnSpace ? 'is-disabled' : ''}`}>
+              <div className="row-info">
+                <span className="row-title">Rapid Attack Cycles</span>
+                <span className="row-desc">
+                  {autoRebetOnSpace
+                    ? 'Number of consecutive Place Bet → Confirm → Rebet cycles'
+                    : 'Disabled in Single Bet mode (only applies when Rapid Attack is selected)'}
+                </span>
+              </div>
+              <input
+                className="inp inp-num"
+                type="number"
+                min={1}
+                max={99}
+                value={autoRebetCycles}
+                disabled={!autoRebetOnSpace}
+                onChange={(e) => onAutoRebetCyclesChange(e.target.value)}
+              />
             </div>
 
             <div className="settings-row">
@@ -481,7 +490,7 @@ export default function SettingsPage({
             <div className="settings-row">
               <div className="row-info">
                 <span className="row-title">Global Hotkeys</span>
-                <span className="row-desc">Space = Rapid Attack, Enter = Rebet, Alt+C = Cashout</span>
+                <span className="row-desc">Enter = Single Bet, Space = {autoRebetOnSpace ? 'Rapid Attack' : 'Single Bet'}, Alt+C = Cashout</span>
               </div>
               <button
                 type="button"
