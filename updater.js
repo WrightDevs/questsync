@@ -62,6 +62,8 @@ function getGitHubToken() {
   return null;
 }
 
+let currentFeedConfig = null;
+
 function initAutoUpdater(win) {
   mainWindow = win;
 
@@ -92,6 +94,7 @@ function initAutoUpdater(win) {
   if (token) {
     feedConfig.token = token;
   }
+  currentFeedConfig = feedConfig;
 
   try {
     updater.setFeedURL(feedConfig);
@@ -174,6 +177,19 @@ async function checkForUpdates() {
     const res = await updater.checkForUpdates();
     return { ok: true, updateInfo: res ? res.updateInfo : null };
   } catch (err) {
+    // If GitHub returns 401 Bad credentials (e.g. stale/revoked token), retry unauthenticated for public repository
+    if (/401|bad credentials/i.test(err.message) && currentFeedConfig && currentFeedConfig.token) {
+      console.warn('[Updater] Token authentication returned 401, retrying unauthenticated against public repository...');
+      delete currentFeedConfig.token;
+      try {
+        updater.setFeedURL(currentFeedConfig);
+        const retryRes = await updater.checkForUpdates();
+        return { ok: true, updateInfo: retryRes ? retryRes.updateInfo : null };
+      } catch (retryErr) {
+        broadcastStatus({ status: 'error', error: retryErr.message });
+        return { ok: false, error: retryErr.message };
+      }
+    }
     broadcastStatus({ status: 'error', error: err.message });
     return { ok: false, error: err.message };
   }
