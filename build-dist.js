@@ -276,7 +276,7 @@ async function main() {
     const versionTag = `v${pkg.version || '1.0.0'}`;
     const exeName = `QuestSync-Setup-${pkg.version || '1.0.0'}.exe`;
 
-    let targetCommit = 'f8772a2';
+    let targetCommit = 'f8772a25c3d21f74769f82f2eda7ec21066a8244';
     try {
       const rev = execSync('git rev-parse origin/master', { cwd: ROOT, encoding: 'utf8' }).trim();
       if (rev) targetCommit = rev;
@@ -296,7 +296,7 @@ async function main() {
       '--title',
       `QuestSync ${versionTag}`,
       '--notes',
-      `Release ${versionTag}: Restored coordinate-based click mirroring for exact odds market alignment, decoupled SPA in-page navigation from full browser reloads, and fixed automated multi-pane sign-in for offscreen account views.`,
+      `Release ${versionTag}: Restored full visual display for betslip confirmation dialogs while preserving instant automated clicking, and hardened update checking.`,
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
     if (pubRes.status === 0) {
