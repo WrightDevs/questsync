@@ -160,6 +160,7 @@ let balanceAwareStake = true;
 let savedAccounts = [];
 let savedMonitorAccount = { phone: '', password: '' };
 let autoLoginEnabled = true;
+const initialAutoLoginPanes = new Set();
 
 function getSettingsPath() {
   return path.join(app.getPath('userData'), 'user-settings.json');
@@ -524,6 +525,17 @@ function layout() {
   }
 }
 
+function stripHashAndParams(u) {
+  try {
+    const parsed = new URL(u);
+    parsed.hash = '';
+    parsed.search = '';
+    return parsed.toString().replace(/\/+$/, '');
+  } catch (_) {
+    return (u || '').split(/[?#]/)[0].replace(/\/+$/, '');
+  }
+}
+
 let isNavSyncing = false;
 function syncNavigationFromLead(leadIndex, targetUrl) {
   if (!options.windowSync || isNavSyncing) return;
@@ -546,6 +558,10 @@ function syncNavigationFromLead(leadIndex, targetUrl) {
 
       const fCurUrl = fView.webContents.getURL();
       const synchedUrl = rewriteCountryOnUrl(targetUrl, fProf.site, fProf.country);
+
+      // Do NOT trigger full page reload if follower is already on the same base page/match
+      if (stripHashAndParams(fCurUrl) === stripHashAndParams(synchedUrl)) continue;
+
       if (fCurUrl !== synchedUrl) {
         fView.webContents.loadURL(synchedUrl).catch(() => {});
       }
@@ -684,12 +700,13 @@ function createViews(count) {
       sendPaneStates();
       if (currentProfitConfig) scheduleApply(350, true);
 
-      // Auto-login on launch if enabled and credentials exist for this window
-      if (autoLoginEnabled && savedAccounts[i] && savedAccounts[i].phone && savedAccounts[i].password) {
+      // Auto-login strictly on initial app launch ONLY (never re-run on subsequent page reloads/navigations)
+      if (autoLoginEnabled && !initialAutoLoginPanes.has(i) && savedAccounts[i] && savedAccounts[i].phone && savedAccounts[i].password) {
+        initialAutoLoginPanes.add(i);
         setTimeout(async () => {
           if (!viewReady(v)) return;
           try {
-            console.log(`[AutoLogin] Pane ${i + 1}: Checking login state...`);
+            console.log(`[AutoLogin] Pane ${i + 1}: Checking login state on initial launch...`);
             await performLogin(v, savedAccounts[i].phone, savedAccounts[i].password, i);
           } catch (err) {
             console.error(`[AutoLogin] Pane ${i + 1} auto-login error:`, err);
@@ -705,7 +722,9 @@ function createViews(count) {
     v.webContents.on('did-navigate-in-page', (_e, url) => {
       syncProfileFromView(i);
       sendPaneStates();
-      syncNavigationFromLead(i, url);
+      // DO NOT call syncNavigationFromLead on in-page navigation:
+      // In SPAs (Nuxt/Vue), hash & route changes are already mirrored via DOM clicks.
+      // Calling loadURL here causes a violent full-page HTTP reload on other panes.
     });
 
     const idx = i + 1;
@@ -1284,7 +1303,21 @@ async function performLogin(v, phone, password, paneIndex = -1) {
     const country = prof.country || 'ng';
     const site = prof.site || 'sportybet';
 
-    // 1. Strict logged-in check: ONLY logged in if real account balance is visible AND no login button is displayed
+    // 1. Session cookie check: if auth tokens are present in persistent session, pane is already authenticated
+    let hasAuthCookie = false;
+    try {
+      const sess = v.webContents.session;
+      if (sess && sess.cookies) {
+        const domain = site === 'football' ? 'football.com' : 'sportybet.com';
+        const cookies = await sess.cookies.get({ domain }).catch(() => []);
+        hasAuthCookie = cookies.some(c =>
+          (c.name === 'token' || c.name === 'uid' || c.name === 'psid' || c.name.includes('token') || c.name.includes('session')) &&
+          c.value && c.value.length > 5
+        );
+      }
+    } catch (_) {}
+
+    // 2. DOM-based logged-in check: balance visible OR storage token present without login prompt
     const checkState = await v.webContents.executeJavaScript(`(() => {
       const isVis = (el) => {
         if (!el) return false;
@@ -1298,11 +1331,12 @@ async function performLogin(v, phone, password, paneIndex = -1) {
       const phoneInp = !!Array.from(document.querySelectorAll('input[type="tel"], input[name="phone"], input[placeholder*="Mobile" i], input[placeholder*="Phone" i]')).find(isVis);
       const passInp = !!Array.from(document.querySelectorAll('input[type="password"], input[name="password"]')).find(isVis);
       const isLoginReady = phoneInp && passInp;
-      const isLoggedIn = !!balanceEl && !hasLoginNot && !isLoginReady;
-      return { isLoggedIn, isLoginReady, hash: location.hash || '', url: location.href || '' };
-    })()`).catch(() => ({ isLoggedIn: false, isLoginReady: false, hash: '', url: '' }));
+      const hasStorageToken = !!(localStorage.getItem('token') || localStorage.getItem('userId') || localStorage.getItem('loginToken'));
+      const isLoggedIn = (!!balanceEl && !hasLoginNot && !isLoginReady) || (hasStorageToken && !hasLoginNot && !isLoginReady);
+      return { isLoggedIn, isLoginReady, hasLoginNot, hash: location.hash || '', url: location.href || '' };
+    })()`).catch(() => ({ isLoggedIn: false, isLoginReady: false, hasLoginNot: false, hash: '', url: '' }));
 
-    if (checkState.isLoggedIn) {
+    if (checkState.isLoggedIn || (hasAuthCookie && !checkState.hasLoginNot && !checkState.isLoginReady)) {
       console.log(`[AutoLogin] Pane ${idx + 1}: Already logged in.`);
       return { ok: true, alreadyLoggedIn: true, reason: 'Already logged in' };
     }
