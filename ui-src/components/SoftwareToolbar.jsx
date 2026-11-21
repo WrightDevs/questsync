@@ -194,11 +194,11 @@ export default function SoftwareToolbar({
               type="button"
               className="btn btn-place"
               onClick={autoRebetOnSpace ? onStartAutoRebet : onPlaceBet}
-              title={autoRebetOnSpace ? "Trigger Rapid Attack cycle across all panes [Space]" : "Place Single Bet across all panes [Enter / Space]"}
+              title={autoRebetOnSpace ? "Trigger Rapid Attack cycle across all panes [Space]" : "Place Single Bet across all panes [Space / Enter]"}
             >
               <Zap size={14} />
               <span>{autoRebetOnSpace ? 'Rapid Attack' : 'Single Bet'}</span>
-              <kbd>{autoRebetOnSpace ? 'Space' : 'Enter'}</kbd>
+              <kbd>Space</kbd>
             </button>
           )}
 

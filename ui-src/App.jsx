@@ -675,8 +675,10 @@ export default function App() {
   };
 
   const handlePlaceBet = async () => {
-    setStatusMsg('Placing single bet across all panes...');
-    if (window.api && window.api.placeBet) {
+    setStatusMsg('Placing single bet (1 pass) across all panes...');
+    if (window.api && window.api.startAutoRebet) {
+      await window.api.startAutoRebet(1);
+    } else if (window.api && window.api.placeBet) {
       await window.api.placeBet();
       setStatusMsg('Single bet placed across panes');
     }
