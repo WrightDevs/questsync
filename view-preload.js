@@ -1194,7 +1194,14 @@ function injectConfirmSuppressionStyles() {
       [data-op*="cashout" i],
       .m-cashout *,
       [class*="cashout" i] *,
-      [data-op*="cashout" i] * {
+      [data-op*="cashout" i] *,
+      .es-dialog button,
+      .m-dialog button,
+      .af-dialog button,
+      .van-popup button,
+      [role="dialog"] button,
+      button:has([data-cms-key*="cashout" i]),
+      button:has([data-cms-key*="confirm" i]):not([data-op*="betslip" i]) {
         opacity: 1 !important;
         visibility: visible !important;
         pointer-events: auto !important;
@@ -1208,31 +1215,45 @@ function injectConfirmSuppressionStyles() {
          ========================================================================= */
       /* All bottom-sheets, modal dialogs, drawers & cashout panels */
       .m-cashout,
-      [class*="cashout-dialog" i],
-      [class*="cashout-confirm" i],
-      [class*="cashout-drawer" i],
+      [class*="cashout" i],
       .bottom-panel-drawer,
-      .es-dialog:not(.dialog-full),
-      .m-dialog:not(.align-with-window):not(.dialog-full),
+      .es-dialog,
+      .m-dialog,
+      .af-dialog,
+      .drawer,
       .drawer__content,
+      .van-popup,
       .van-popup--bottom,
-      [role="dialog"]:not(.dialog-full),
-      [class*="bottom-sheet" i] {
-        max-height: 98vh !important;
-        max-height: 98dvh !important;
+      [role="dialog"],
+      [class*="bottom-sheet" i],
+      [class*="modal" i] {
         box-sizing: border-box !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        overscroll-behavior: contain !important;
       }
 
-      /* Bottom-anchored elements must sit at bottom: 0 so Confirm button stays on-screen */
+      /* Bottom-anchored element wrappers & dialog boxes: anchor to bottom: 0, constrain to viewport, and scroll */
+      .es-dialog .es-dialog-wrapper,
+      .es-dialog .es-dialog-box,
+      .es-dialog .es-dialog-body,
+      .es-dialog .es-dialog-main,
+      .m-dialog .m-dialog-wrapper,
+      .m-dialog .m-dialog-box,
+      .m-dialog .m-dialog-body,
+      .m-dialog .m-dialog-main,
+      .af-dialog .af-dialog-body,
+      .drawer__content,
+      .van-popup--bottom,
+      .bottom-panel-drawer,
       .m-cashout,
       [class*="cashout-dialog" i],
       [class*="cashout-confirm" i],
       [class*="cashout-drawer" i],
-      .bottom-panel-drawer,
-      .van-popup--bottom {
+      [class*="bottom-sheet" i] {
+        max-height: 96vh !important;
+        max-height: 96dvh !important;
+        box-sizing: border-box !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        overscroll-behavior: contain !important;
         bottom: 0 !important;
       }
 
@@ -1255,6 +1276,8 @@ function injectConfirmSuppressionStyles() {
       /* Allow pane document scrolling so content is never cut off in small pane heights */
       html, body {
         overflow-y: auto !important;
+        height: auto !important;
+        min-height: 100% !important;
       }
     `;
     const target = document.head || document.documentElement;
@@ -1265,27 +1288,80 @@ function injectConfirmSuppressionStyles() {
 // Automatically ensure Cashout Confirm button is scrolled into view when cashout panel opens
 function ensureCashoutConfirmInView() {
   try {
-    const hasCashoutOrDialog = document.querySelector('.m-cashout, [class*="cashout" i], [data-op*="cashout" i], .bottom-panel-drawer, .van-popup--bottom');
-    if (!hasCashoutOrDialog) return;
+    unlockScrollIfNeeded();
 
-    const cashoutRoots = Array.from(document.querySelectorAll(
-      '.m-cashout, [class*="cashout" i], [data-op*="cashout" i], .bottom-panel-drawer, .van-popup--bottom'
+    // Find all candidate confirm/cashout buttons across document
+    const allBtns = Array.from(document.querySelectorAll(
+      'button, [role="button"], .m-btn, .af-button, [data-op*="confirm" i], [data-op*="cashout" i], [class*="confirm" i]'
     ));
-    for (const root of cashoutRoots) {
-      if (!root || root.offsetParent === null) continue;
-      const cBtns = Array.from(root.querySelectorAll(
-        'button, [role="button"], .m-btn, .af-button, [data-op*="confirm" i], [data-op*="cashout" i], [class*="confirm" i]'
-      )).filter((b) => {
-        const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-        return t.includes('confirm') || t.includes('cashout');
-      });
-      if (cBtns.length > 0) {
-        const btn = cBtns[cBtns.length - 1];
-        btn.style.setProperty('opacity', '1', 'important');
-        btn.style.setProperty('visibility', 'visible', 'important');
-        btn.style.setProperty('pointer-events', 'auto', 'important');
-        try { btn.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (_) {}
+
+    const confirmBtns = allBtns.filter((b) => {
+      if (!b) return false;
+      // Exclude betslip auto-confirm targets (which are suppressed for spacebar)
+      if (b.closest('.m-fast-betslip, .m-betslip, [data-op*="fast-betslip" i]') &&
+          !b.closest('.m-cashout, [class*="cashout" i], .es-dialog, .m-dialog, [role="dialog"]')) {
+        return false;
       }
+      const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+      if (!t || t.length > 50) return false;
+      if (/deposit|recharge|top[\s-]?up|cancel|close|back|rule|how to|what is/i.test(t)) return false;
+      // Match "Confirm NGN 10.58", "Confirm Cashout", "Confirm", "Full Cashout", etc.
+      return (
+        t === 'confirm' ||
+        t.startsWith('confirm ') ||
+        t.includes('confirm') ||
+        (t.includes('cashout') && (t.includes('confirm') || t.includes('ngn') || t.includes('ghs') || /\d/.test(t)))
+      );
+    });
+
+    for (const btn of confirmBtns) {
+      if (!btn) continue;
+      // Force high-priority visibility
+      btn.style.setProperty('opacity', '1', 'important');
+      btn.style.setProperty('visibility', 'visible', 'important');
+      btn.style.setProperty('pointer-events', 'auto', 'important');
+
+      // Check parent hierarchy to ensure any overflowing container allows vertical scroll and docks at bottom: 0
+      let cur = btn.parentElement;
+      while (cur && cur !== document.body && cur !== document.documentElement) {
+        const cs = window.getComputedStyle(cur);
+        if (cur.scrollHeight > cur.clientHeight || cs.position === 'fixed' || cs.position === 'absolute') {
+          cur.style.setProperty('max-height', '96vh', 'important');
+          cur.style.setProperty('overflow-y', 'auto', 'important');
+          cur.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+          if (cs.position === 'fixed' || cs.position === 'absolute') {
+            cur.style.setProperty('bottom', '0px', 'important');
+          }
+        }
+        cur = cur.parentElement;
+      }
+
+      // Bring button cleanly into view
+      try {
+        btn.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      } catch (_) {
+        try { btn.scrollIntoView(false); } catch (_) {}
+      }
+
+      // If button still extends past bottom of viewport, adjust scroll
+      const r = btn.getBoundingClientRect();
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      if (r.bottom > vh) {
+        try {
+          btn.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'instant' });
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
+function unlockScrollIfNeeded() {
+  try {
+    if (document.body && document.body.style.overflow === 'hidden') {
+      document.body.style.setProperty('overflow-y', 'auto', 'important');
+    }
+    if (document.documentElement && document.documentElement.style.overflow === 'hidden') {
+      document.documentElement.style.setProperty('overflow-y', 'auto', 'important');
     }
   } catch (_) {}
 }
@@ -1298,6 +1374,24 @@ function scheduleCashoutConfirmInView() {
     cashoutScheduled = false;
     ensureCashoutConfirmInView();
   });
+}
+
+// Watch for clicks on Cashout buttons to trigger multi-stage layout guarantees during slide-up animation
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (e) => {
+    try {
+      const el = e.target;
+      if (!el) return;
+      const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+      const isCashout = txt.includes('cashout') || txt.includes('cash out') ||
+        (el.className && typeof el.className === 'string' && el.className.toLowerCase().includes('cashout'));
+      if (isCashout) {
+        [50, 150, 300, 500, 800].forEach((delay) => {
+          setTimeout(scheduleCashoutConfirmInView, delay);
+        });
+      }
+    } catch (_) {}
+  }, { capture: true, passive: true });
 }
 
 if (typeof document !== 'undefined') {
