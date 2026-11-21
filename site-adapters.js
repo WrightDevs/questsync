@@ -1815,7 +1815,7 @@ const FAST_REBET_CYCLE_JS = (targetStake) => `
 // 6. Wait for Betslip to re-mount selections & Place Bet button to become enabled again
 // 7. Apply decremented stake
 // Returns { ok: true, cycleCompleted: true } so the next cycle can fire immediately!
-const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
+const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
   (async () => {
     const wait = (ms) => new Promise(r => setTimeout(r, ms));
     const isVis = (el) => {
@@ -2599,6 +2599,13 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake) => `
       if (cycleStep2Obs) {
         try { cycleStep2Obs.disconnect(); } catch (_) {}
       }
+    }
+
+    // If this is the final cycle of the attack (or single cycle), we are DONE once the bet is confirmed!
+    // Do NOT click Rebet and do NOT wait for the betslip to clear.
+    if (${isFinalCycle ? 'true' : 'false'}) {
+      logTrace('Final cycle reached (bet confirmed). Skipping Rebet to complete cycle cleanly.');
+      return { cycleCompleted: true, placed: true, confirmed: true, isFinalCycle: true, traceLogs };
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

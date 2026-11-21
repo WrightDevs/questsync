@@ -910,7 +910,7 @@ function scheduleSlipCheck() {
 }
 
 // Instant Rebet Watcher: fires synchronously on DOM microtask (<0.1ms) the instant Rebet appears
-let autoRebetArmed = true;
+let autoRebetArmed = false;
 ipcRenderer.on('set-auto-rebet-armed', (_e, val) => {
   autoRebetArmed = !!val;
   if (autoRebetArmed) tryClickInstantRebet();

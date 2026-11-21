@@ -498,8 +498,10 @@ export default function App() {
           e.preventDefault();
           if (autoRebetState.running) {
             handleStopAutoRebet();
-          } else {
+          } else if (autoRebetOnSpace) {
             handleStartAutoRebet();
+          } else {
+            handlePlaceBet();
           }
         }
       } else if ((e.key === 'Enter' || e.code === 'NumpadEnter') && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
@@ -665,9 +667,18 @@ export default function App() {
   };
 
   const handleStartAutoRebet = async () => {
-    setStatusMsg(`Rapid Attack running (${autoRebetCycles} cycles)...`);
+    const cyc = autoRebetCycles === 'inf' ? 'inf' : (parseInt(autoRebetCycles, 10) || 1);
+    setStatusMsg(`Rapid Attack running (${cyc} cycle${cyc === 1 ? '' : 's'})...`);
     if (window.api.startAutoRebet) {
-      await window.api.startAutoRebet(autoRebetCycles);
+      await window.api.startAutoRebet(cyc);
+    }
+  };
+
+  const handlePlaceBet = async () => {
+    setStatusMsg('Placing single bet across all panes...');
+    if (window.api && window.api.placeBet) {
+      await window.api.placeBet();
+      setStatusMsg('Single bet placed across panes');
     }
   };
 
@@ -688,7 +699,7 @@ export default function App() {
     if (window.api && window.api.saveUserSettings) {
       window.api.saveUserSettings({ autoRebetOnSpace: next });
     }
-    setStatusMsg(next ? 'Spacebar armed: Rapid Attack enabled' : 'Spacebar set to single Place Bet');
+    setStatusMsg(next ? 'Spacebar armed: Rapid Attack enabled' : 'Spacebar set to Single Bet (no rebet)');
   };
 
   const handleToggleWhole = () => {
@@ -933,8 +944,10 @@ export default function App() {
             onMinStake={handleMinStake}
             rebetActive={autoRebetState.running}
             autoRebetState={autoRebetState}
+            autoRebetOnSpace={autoRebetOnSpace}
             onStartAutoRebet={handleStartAutoRebet}
             onStopAutoRebet={handleStopAutoRebet}
+            onPlaceBet={handlePlaceBet}
             onRebet={handleRebet}
             onCashoutAll={handleCashoutAll}
           />

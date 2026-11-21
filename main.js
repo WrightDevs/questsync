@@ -235,6 +235,8 @@ function loadUserSettings() {
         autoRebetCycles = s.autoRebetCycles;
       } else if (s.autoRebetCycles === 'inf') {
         autoRebetCycles = 'inf';
+      } else if (typeof s.autoRebetCycles === 'string' && parseInt(s.autoRebetCycles, 10) > 0) {
+        autoRebetCycles = parseInt(s.autoRebetCycles, 10);
       }
       if (Array.isArray(s.accounts)) {
         savedAccounts = s.accounts.map((a) => ({
@@ -677,10 +679,12 @@ function createViews(count) {
           if (!input.isAutoRepeat) {
             if (autoRebetRunning) {
               stopAutoRebet();
-            } else {
-              // Space ALWAYS runs the full Place Bet → Confirm → Rebet continuous cycle
-              const runCyc = (autoRebetCycles === 1 || !autoRebetCycles) ? 'inf' : autoRebetCycles;
+            } else if (autoRebetOnSpace) {
+              const runCyc = autoRebetCycles === 'inf' ? 'inf' : Math.max(1, parseInt(autoRebetCycles, 10) || 1);
               startAutoRebet(runCyc);
+            } else {
+              // Single Bet mode: place and confirm bet once across all panes, NO rebet!
+              triggerPlaceBet('Space');
             }
           }
         }
@@ -3097,6 +3101,11 @@ async function runPaneAttackLoop(v, i, targetCycles) {
     }
 
     const currentCycleNum = completedCycles + 1;
+    const isFinalCycle = (targetCycles !== 'inf' && currentCycleNum >= targetCycles);
+
+    // If final cycle, disarm rebet watcher in preload so it doesn't click Rebet after confirming
+    try { v.webContents.send('set-auto-rebet-armed', !isFinalCycle); } catch (_) { }
+
     if (currentCycleNum > autoRebetCycle) {
       autoRebetCycle = currentCycleNum;
       emitAutoRebetState(`Cycle #${autoRebetCycle}${targetCycles === 'inf' ? '' : '/' + targetCycles}: Rapid attacking across panes...`);
@@ -3125,7 +3134,7 @@ async function runPaneAttackLoop(v, i, targetCycles) {
     // Run rapid cycle (Place Bet -> Confirm -> Rebet -> Betslip ready)
     let res = null;
     try {
-      res = await v.webContents.executeJavaScript(EXECUTE_ATTACK_CYCLE_JS(stakeToApply));
+      res = await v.webContents.executeJavaScript(EXECUTE_ATTACK_CYCLE_JS(stakeToApply, isFinalCycle));
       if (res && res.traceLogs && res.traceLogs.length > 0) {
         console.log(`[AutoRebet:Trace:Pane ${i + 1}]\n  ` + res.traceLogs.join('\n  '));
       }
@@ -3179,10 +3188,11 @@ async function startAutoRebet(cycles) {
   const targetDesc = autoRebetTarget === 'inf' ? 'Continuous Attack' : `${autoRebetTarget} cycles`;
   emitAutoRebetState(`Auto-Rebet attacking (${targetDesc}) - Independent rapid fire...`);
 
-  // Ensure stop flag is reset across all views
+  // Ensure stop flag is reset across all views, arm rebet watcher only if more than 1 cycle
   views.forEach((v) => {
     try {
       v.webContents.executeJavaScript('window.__mfas_auto_rebet_stop = false;').catch(() => { });
+      v.webContents.send('set-auto-rebet-armed', autoRebetTarget !== 1);
     } catch (_) { }
   });
 

@@ -124,7 +124,7 @@ export default function SettingsDrawer({
               title="When enabled, hitting Space Bar automatically places, confirms, and rebets until cycles complete"
             >
               <span className="indicator" />
-              <span>{autoRebetOnSpace ? 'Enabled' : 'Disabled'}</span>
+              <span>{autoRebetOnSpace ? 'Armed' : 'Single Bet'}</span>
             </button>
           </div>
           <div className="drawer-row">
