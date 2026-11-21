@@ -613,7 +613,7 @@ function findCrossSiteTarget(m) {
     }
     if (!card) return null;
     let scope = card;
-    if (sem.market && (card === document.body || card.tagName === 'MAIN')) {
+    if (sem.market && (isMatchPage || card === document.body || card.tagName === 'MAIN' || (card.matches && card.matches('[class*="match-detail" i], [class*="event-detail" i], .match-info')))) {
       const mNorm = normText(sem.market);
       const groups = Array.from(card.querySelectorAll(
         '[data-op="market-group"], [data-op*="market" i], [class*="market-item" i], [class*="market-group" i], section[class*="market" i], .m-market, .m-market-group, .m-table, [class*="m-market" i], [class*="accordion" i], [class*="group" i]'
@@ -1674,58 +1674,59 @@ document.addEventListener('input', (e) => {
 
 // ─── Replay ─────────────────────────────────────────────────────────────────
 
+const CLICKABLE_REPLAY_SEL = 'button, a, [role="button"], label, input, select, [data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="outcome-btn"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"], [role="tab"], [class*="tab-item" i], [class*="market-tab" i], [data-op*="tab" i], .m-tab-item, [data-op*="market-title" i], [data-op*="market-header" i], [data-op*="market-group-title" i], [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="market-toggle" i], .m-market-title, .m-market-header, .m-table-header, .m-outcome, [class*="m-outcome"], [class*="outcome-btn" i], [class*="outcome-item" i]';
+
 function findTarget(m) {
   const crossSite = !!(m.srcSite && m.srcSite !== currentSite());
   if (crossSite) {
-    // STRICT CROSS-SITE SAFETY: never use blind (rx, ry) coordinates or foreign selectors
+    // STRICT CROSS-SITE SAFETY: never use coordinates or foreign selectors across different sites
     return findCrossSiteTarget(m);
   }
 
-  // 0. For outcomes, market headers, market tabs, and match navigation, semantic identity matching is highest fidelity
-  if (m.semantic && (m.semantic.kind === 'outcome' || m.semantic.kind === 'market-header' || m.semantic.kind === 'market-tab' || m.semantic.kind === 'match-nav')) {
-    const semHit = findCrossSiteTarget(m);
-    if (semHit) return semHit;
-  }
-
+  const x = m.rx != null ? Math.round(m.rx * window.innerWidth) : null;
+  const y = m.ry != null ? Math.round(m.ry * window.innerHeight) : null;
   let el = null;
 
-  // 1. Same-site: if user clicked a specific button or interactive control, try that selector first
-  if (m.clickableSelector) {
+  // 1. PRIMARY: Exact screen coordinate element lookup.
+  // In QuestSync, all panes run identical viewport dimensions, zoom, and synchronized scrolling.
+  // Coordinates hit the exact odds market, button, tab, accordion, or control directly across panes.
+  if (x != null && y != null) {
+    const pointEl = document.elementFromPoint(x, y);
+    if (pointEl && pointEl !== document.documentElement && pointEl !== document.body) {
+      const clickableCandidate = pointEl.closest ? pointEl.closest(CLICKABLE_REPLAY_SEL) : null;
+      if (clickableCandidate) {
+        el = clickableCandidate;
+      } else if (!m.clickableSelector) {
+        // Overlay mask, backdrop, dialog container, or non-button element
+        el = pointEl;
+      } else {
+        el = pointEl;
+      }
+    }
+  }
+
+  // 2. Same-site fallback if coordinate element was missing or bare document
+  if (!el && m.clickableSelector) {
     try { el = document.querySelector(m.clickableSelector); } catch (_) {}
   }
   if (!el && m.smartSelector) {
     try { el = document.querySelector(m.smartSelector); } catch (_) {}
   }
 
-  // 1b. Same-site country-agnostic semantic fallback (e.g. NG <-> GH path differences)
-  if (!el && m.semantic) {
-    el = findCrossSiteTarget(m);
-  }
-
-  // 2. Fallback to css path selector
+  // 3. Fallback to css path selector
   if (!el && m.selector) {
     try { el = document.querySelector(m.selector); } catch (_) {}
   }
 
-  // 3. STRICT COORDINATE SAFETY:
-  // ONLY allow coordinate fallback for non-interactive modal backdrop dismissals!
-  // NEVER blindly click coordinates for outcomes, markets, accordions, tabs, or buttons!
-  const isInteractive = !!(m.clickableSelector || (m.semantic && m.semantic.kind !== 'generic'));
-  if (!el && !isInteractive && m.isInsideModal && m.rx != null && m.ry != null) {
-    const x = Math.round(m.rx * window.innerWidth);
-    const y = Math.round(m.ry * window.innerHeight);
-    const candidate = document.elementFromPoint(x, y);
-    const isOverlay = candidate && candidate.matches && candidate.matches(
-      'body, html, [class*="mask" i], [class*="overlay" i], [class*="backdrop" i]'
-    );
-    if (isOverlay) el = candidate;
+  // 4. Semantic fallback across cards / country variants
+  if (!el && m.semantic) {
+    el = findCrossSiteTarget(m);
   }
 
-  if (!el && isInteractive) {
-    console.warn('[MirrorReplay] could not mirror: element not found on pane, skipping to prevent desync', {
-      semantic: m.semantic,
-      clickableSelector: m.clickableSelector
-    });
+  // 5. Final coordinate element fallback (e.g. backdrop overlays)
+  if (!el && x != null && y != null) {
+    const candidate = document.elementFromPoint(x, y);
+    if (candidate) el = candidate;
   }
 
   return el;
@@ -1739,7 +1740,7 @@ ipcRenderer.on('mirror-replay', (_e, m) => {
       const el = findTarget(m);
 
       if (el) {
-        const clickable = el.closest('button, a, [role="button"], label, input, [data-op="betslip-icon"], [data-op*="betslip-icon" i], [data-op="betslip-selection-count"], [data-op="outcome-btn"], .place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], .flexibet-confirm, [data-op="betslip-confirm"], [data-op="betslip-confirm-wrap"], [role="tab"], [class*="tab-item" i], [class*="market-tab" i], [data-op*="tab" i], .m-tab-item, [data-op*="market-title" i], [data-op*="market-header" i], [data-op*="market-group-title" i], [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="market-toggle" i], .m-market-title, .m-market-header, .m-table-header');
+        const clickable = el.closest ? el.closest(CLICKABLE_REPLAY_SEL) : null;
         const targetToClick = clickable || el;
 
         const isOverlay = targetToClick.matches && targetToClick.matches(
