@@ -1150,43 +1150,8 @@ function injectConfirmSuppressionStyles() {
     style.id = styleId;
     style.textContent = `
       /* =========================================================================
-         1. BETSLIP ONLY Confirmation Suppression (Rapid Attack / Spacebar / Rebet)
-         CRITICAL: Only suppress intermediate bet confirmation inside betslip.
-         NEVER suppress Cashout buttons, dialogs, drawers, or account modals!
-         ========================================================================= */
-      button[data-op="betslip-confirm"],
-      [data-op="betslip-confirm"],
-      button.flexibet-confirm,
-      .flexibet-confirm,
-      [data-op="betslip-confirm-wrap"],
-      button[data-op="betslip-confirm-to-pay-confirm"],
-      [data-op="betslip-confirm-to-pay-confirm"],
-      [data-op="betslip-confirm-to-pay-btn"],
-      [data-op="confirm-to-pay-btn"],
-      .m-fast-betslip [data-op*="confirm" i],
-      .m-betslip [data-op*="confirm" i],
-      .m-fast-betslip button:has([data-cms-key="confirm"]),
-      .m-betslip button:has([data-cms-key="confirm"]),
-      [data-op*="betslip" i] button:has([data-cms-key="confirm"]),
-      [data-op="betslip-confirm-to-pay-modal"] button:has([data-cms-key="confirm"]),
-      .m-dialog:has([data-op*="betslip-confirm" i]):not([class*="cashout" i]):not(:has([class*="cashout" i])),
-      .drawer:has([data-op*="betslip-confirm" i]):not([class*="cashout" i]):not(:has([class*="cashout" i])),
-      [role="dialog"]:has([data-op*="betslip-confirm" i]):not([class*="cashout" i]):not(:has([class*="cashout" i])),
-      .m-pop-box:has([data-op*="betslip-confirm" i]):not([class*="cashout" i]):not(:has([class*="cashout" i])) {
-        opacity: 0 !important;
-        pointer-events: auto !important;
-        transition: none !important;
-        animation: none !important;
-      }
-      .m-mask:has(~ .m-dialog [data-op*="betslip-confirm" i]),
-      .m-dialog-mask:has(~ .m-dialog [data-op*="betslip-confirm" i]) {
-        opacity: 0 !important;
-        pointer-events: none !important;
-      }
-
-      /* =========================================================================
-         2. CASHOUT FLOW: Explicit High-Priority Visibility Guarantee
-         Ensures Cashout dialogs, cards, sliders, and Confirm buttons are ALWAYS
+         1. CASHOUT & CONFIRMATION FLOW: High-Priority Visibility Guarantee
+         Ensures Cashout dialogs, betslip Confirm buttons, and modals are ALWAYS
          100% visible, fully opaque, and directly clickable.
          ========================================================================= */
       .m-cashout,
@@ -1201,7 +1166,9 @@ function injectConfirmSuppressionStyles() {
       .van-popup button,
       [role="dialog"] button,
       button:has([data-cms-key*="cashout" i]),
-      button:has([data-cms-key*="confirm" i]):not([data-op*="betslip" i]) {
+      button:has([data-cms-key*="confirm" i]),
+      button[data-op*="confirm" i],
+      [data-op*="confirm" i] {
         opacity: 1 !important;
         visibility: visible !important;
         pointer-events: auto !important;
