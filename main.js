@@ -61,13 +61,14 @@ function updateViewsVisibility() {
     views.forEach((v) => {
       try {
         if (typeof v.setVisible === 'function') v.setVisible(false);
-        v.setBounds({ x: -10000, y: -10000, width: 0, height: 0 });
+        // Maintain a valid mobile viewport offscreen so DOM measurements and login inputs remain functional
+        v.setBounds({ x: -10000, y: -10000, width: 380, height: 800 });
       } catch (_) {}
     });
     if (activeMonitorV && !activeMonitorV.webContents.isDestroyed()) {
       try {
         if (typeof activeMonitorV.setVisible === 'function') activeMonitorV.setVisible(false);
-        activeMonitorV.setBounds({ x: -10000, y: -10000, width: 0, height: 0 });
+        activeMonitorV.setBounds({ x: -10000, y: -10000, width: 380, height: 800 });
       } catch (_) {}
     }
   } else {
@@ -702,12 +703,12 @@ function createViews(count) {
 
       // Auto-login strictly on initial app launch ONLY (never re-run on subsequent page reloads/navigations)
       if (autoLoginEnabled && !initialAutoLoginPanes.has(i) && savedAccounts[i] && savedAccounts[i].phone && savedAccounts[i].password) {
-        initialAutoLoginPanes.add(i);
         setTimeout(async () => {
-          if (!viewReady(v)) return;
+          if (!viewReady(v) || initialAutoLoginPanes.has(i)) return;
           try {
             console.log(`[AutoLogin] Pane ${i + 1}: Checking login state on initial launch...`);
-            await performLogin(v, savedAccounts[i].phone, savedAccounts[i].password, i);
+            const res = await performLogin(v, savedAccounts[i].phone, savedAccounts[i].password, i);
+            if (res && res.ok) initialAutoLoginPanes.add(i);
           } catch (err) {
             console.error(`[AutoLogin] Pane ${i + 1} auto-login error:`, err);
           }
@@ -1116,7 +1117,12 @@ ipcMain.handle('ui:get-account-statuses', async () => {
           isLoggedIn = true;
         } else {
           const chk = await v.webContents.executeJavaScript(`(() => {
-            const isVis = (el) => el && el.offsetWidth > 0 && el.offsetHeight > 0;
+            const isVis = (el) => {
+              if (!el) return false;
+              const st = window.getComputedStyle(el);
+              if (st.visibility === 'hidden' || st.display === 'none') return false;
+              return (el.offsetWidth > 0 && el.offsetHeight > 0) || window.innerWidth <= 1;
+            };
             const balanceEl = Array.from(document.querySelectorAll(
               '.m-balance-val, .m-balance-num, [data-op="header-balance"], .header-balance, .af-balance, .balance-num, [data-op="user-balance"]'
             )).find(isVis);
@@ -1303,26 +1309,13 @@ async function performLogin(v, phone, password, paneIndex = -1) {
     const country = prof.country || 'ng';
     const site = prof.site || 'sportybet';
 
-    // 1. Session cookie check: if auth tokens are present in persistent session, pane is already authenticated
-    let hasAuthCookie = false;
-    try {
-      const sess = v.webContents.session;
-      if (sess && sess.cookies) {
-        const domain = site === 'football' ? 'football.com' : 'sportybet.com';
-        const cookies = await sess.cookies.get({ domain }).catch(() => []);
-        hasAuthCookie = cookies.some(c =>
-          (c.name === 'token' || c.name === 'uid' || c.name === 'psid' || c.name.includes('token') || c.name.includes('session')) &&
-          c.value && c.value.length > 5
-        );
-      }
-    } catch (_) {}
-
-    // 2. DOM-based logged-in check: balance visible OR storage token present without login prompt
+    // 1. Strict logged-in check: ONLY logged in if real account balance is visible AND no login button is displayed
     const checkState = await v.webContents.executeJavaScript(`(() => {
       const isVis = (el) => {
         if (!el) return false;
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0 && window.getComputedStyle(el).visibility !== 'hidden';
+        const st = window.getComputedStyle(el);
+        if (st.visibility === 'hidden' || st.display === 'none') return false;
+        return (el.offsetWidth > 0 && el.offsetHeight > 0) || window.innerWidth <= 1;
       };
       const balanceEl = Array.from(document.querySelectorAll(
         '.m-balance-val, .m-balance-num, [data-op="header-balance"], .header-balance, .af-balance, .balance-num, [data-op="user-balance"]'
@@ -1331,12 +1324,11 @@ async function performLogin(v, phone, password, paneIndex = -1) {
       const phoneInp = !!Array.from(document.querySelectorAll('input[type="tel"], input[name="phone"], input[placeholder*="Mobile" i], input[placeholder*="Phone" i]')).find(isVis);
       const passInp = !!Array.from(document.querySelectorAll('input[type="password"], input[name="password"]')).find(isVis);
       const isLoginReady = phoneInp && passInp;
-      const hasStorageToken = !!(localStorage.getItem('token') || localStorage.getItem('userId') || localStorage.getItem('loginToken'));
-      const isLoggedIn = (!!balanceEl && !hasLoginNot && !isLoginReady) || (hasStorageToken && !hasLoginNot && !isLoginReady);
-      return { isLoggedIn, isLoginReady, hasLoginNot, hash: location.hash || '', url: location.href || '' };
-    })()`).catch(() => ({ isLoggedIn: false, isLoginReady: false, hasLoginNot: false, hash: '', url: '' }));
+      const isLoggedIn = !!balanceEl && !hasLoginNot && !isLoginReady;
+      return { isLoggedIn, isLoginReady, hash: location.hash || '', url: location.href || '' };
+    })()`).catch(() => ({ isLoggedIn: false, isLoginReady: false, hash: '', url: '' }));
 
-    if (checkState.isLoggedIn || (hasAuthCookie && !checkState.hasLoginNot && !checkState.isLoginReady)) {
+    if (checkState.isLoggedIn) {
       console.log(`[AutoLogin] Pane ${idx + 1}: Already logged in.`);
       return { ok: true, alreadyLoggedIn: true, reason: 'Already logged in' };
     }
@@ -1346,27 +1338,30 @@ async function performLogin(v, phone, password, paneIndex = -1) {
       const curUrl = checkState.url || '';
       if (site === 'sportybet') {
         const homeUrl = `https://www.sportybet.com/${country}/m/`;
-        if (!curUrl.includes('sportybet.com') || !curUrl.includes('/m/')) {
-          console.log(`[AutoLogin] Pane ${idx + 1}: Loading home page: ${homeUrl}`);
+        const isHome = curUrl === homeUrl || curUrl === `https://www.sportybet.com/${country}/m` || curUrl.startsWith(`${homeUrl}#`);
+        if (!isHome) {
+          console.log(`[AutoLogin] Pane ${idx + 1}: Navigating to login home: ${homeUrl}`);
           await v.webContents.loadURL(homeUrl).catch(() => {});
-          await sleep(1500);
+          await sleep(2000);
         }
         // Force-open the SportyBet login dialog:
         await v.webContents.executeJavaScript(`(() => {
           if (typeof window.login !== 'undefined' && typeof window.login.showType === 'function') {
             try { window.login.showType('login'); } catch (_) {}
+          } else if (typeof window.login !== 'undefined' && typeof window.login.show === 'function') {
+            try { window.login.show(); } catch (_) {}
           }
           try { location.hash = '#login'; } catch (_) {}
-          const btn = document.querySelector('[data-op="nav-login"], .m-btn-login, [data-cms-key="login"]');
+          const btn = document.querySelector('[data-op="nav-login"], .m-btn-login, .m-btn--login, [data-cms-key="login"]');
           if (btn) try { btn.click(); } catch (_) {}
         })()`).catch(() => {});
-        await sleep(400);
+        await sleep(500);
       } else {
         const loginUrl = `https://www.football.com/${country}/m/login`;
         if (!curUrl.includes('login')) {
           console.log(`[AutoLogin] Pane ${idx + 1}: Loading login page: ${loginUrl}`);
           await v.webContents.loadURL(loginUrl).catch(() => {});
-          await sleep(1500);
+          await sleep(2000);
         }
       }
     }

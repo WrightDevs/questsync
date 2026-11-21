@@ -3062,9 +3062,11 @@ function loginCode(phone, password) {
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const isVis = (el) => {
         if (!el) return false;
-        const r = el.getBoundingClientRect();
         const st = window.getComputedStyle(el);
-        return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none';
+        if (st.visibility === 'hidden' || st.display === 'none') return false;
+        const r = el.getBoundingClientRect();
+        if (window.innerWidth <= 1 || window.innerHeight <= 1) return true;
+        return r.width > 0 && r.height > 0;
       };
       const isNotConverter = (el) => {
         if (!el) return false;
