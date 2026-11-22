@@ -276,9 +276,9 @@ async function main() {
     const versionTag = `v${pkg.version || '1.0.0'}`;
     const exeName = `QuestSync-Setup-${pkg.version || '1.0.0'}.exe`;
 
-    let targetCommit = 'f8772a25c3d21f74769f82f2eda7ec21066a8244';
+    let targetCommit = 'HEAD';
     try {
-      const rev = execSync('git rev-parse origin/master', { cwd: ROOT, encoding: 'utf8' }).trim();
+      const rev = execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
       if (rev) targetCommit = rev;
     } catch (_) {}
 
@@ -296,7 +296,7 @@ async function main() {
       '--title',
       `QuestSync ${versionTag}`,
       '--notes',
-      `Release ${versionTag}: Restored full visual display for betslip confirmation dialogs while preserving instant automated clicking, and hardened update checking.`,
+      `Release ${versionTag}: Single Bet mode hotkey fix, strict market & selection composite matching on replay, stopped monitor auto-search, throttled polling loops, and pre-warmed Rebet microtask execution.`,
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
     if (pubRes.status === 0) {
