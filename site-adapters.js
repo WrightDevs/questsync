@@ -2612,31 +2612,76 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
     // STEP 3: Wait for "Bet Successful" modal & Click "Rebet"
     // ─────────────────────────────────────────────────────────────────────────────
     let rebetClicked = false;
-    logTrace('Cycle Step 3: Waiting for Rebet button...');
-    for (let rWait = 0; rWait < 500; rWait++) {
-      if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
+    logTrace('Cycle Step 3: Pre-warming Rebet observer...');
 
-      const rebetBtn = tryFindRebet();
-      if (rebetBtn) {
-        logTrace('Cycle Step 3: Rebet button found on rWait ' + rWait + ':', norm(rebetBtn));
-        triggerClick(rebetBtn);
-        try { rebetBtn.click(); } catch (_) {}
-        try { rebetBtn.click(); } catch (_) {}
-        rebetClicked = true;
-        break;
-      }
+    // 1. Immediate t=0 check
+    const instantRebetBtn = tryFindRebet();
+    if (instantRebetBtn) {
+      logTrace('Cycle Step 3: Instant Rebet found at t=0:', norm(instantRebetBtn));
+      triggerClick(instantRebetBtn);
+      try { instantRebetBtn.click(); } catch (_) {}
+      try { instantRebetBtn.click(); } catch (_) {}
+      rebetClicked = true;
+    }
 
-      // If preload MutationObserver already clicked Rebet in <0.1ms (only valid if confirmed!):
-      if (confirmed && rWait > 4 && !isSuccessModalOpen()) {
-        const slipRoot = document.querySelector('.m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i]');
-        if (slipRoot && isVis(slipRoot)) {
-          logTrace('Cycle Step 3: Preload observer closed modal, slip visible');
+    // 2. Pre-warmed MutationObserver (fires synchronously in DOM microtask <0.5ms the instant Vue renders the modal)
+    let cycleStep3Obs = null;
+    if (!rebetClicked) {
+      try {
+        cycleStep3Obs = new MutationObserver(() => {
+          if (!rebetClicked) {
+            const hit = tryFindRebet();
+            if (hit) {
+              logTrace('Cycle Step 3: Pre-warmed MutationObserver caught Rebet in microtask (<0.5ms):', norm(hit));
+              rebetClicked = true;
+              triggerClick(hit);
+              try { hit.click(); } catch (_) {}
+              try { hit.click(); } catch (_) {}
+            }
+          }
+        });
+        if (document.documentElement) {
+          cycleStep3Obs.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'style', 'data-op']
+          });
+        }
+      } catch (_) {}
+    }
+
+    try {
+      for (let rWait = 0; rWait < 500; rWait++) {
+        if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
+        if (rebetClicked) break;
+
+        const rebetBtn = tryFindRebet();
+        if (rebetBtn) {
+          logTrace('Cycle Step 3: Rebet button found on rWait ' + rWait + ':', norm(rebetBtn));
+          triggerClick(rebetBtn);
+          try { rebetBtn.click(); } catch (_) {}
+          try { rebetBtn.click(); } catch (_) {}
           rebetClicked = true;
           break;
         }
-      }
 
-      await wait(8);
+        // If preload MutationObserver already clicked Rebet in <0.1ms (only valid if confirmed!):
+        if (confirmed && rWait > 4 && !isSuccessModalOpen()) {
+          const slipRoot = document.querySelector('.m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i]');
+          if (slipRoot && isVis(slipRoot)) {
+            logTrace('Cycle Step 3: Preload observer closed modal, slip visible');
+            rebetClicked = true;
+            break;
+          }
+        }
+
+        await wait(8);
+      }
+    } finally {
+      if (cycleStep3Obs) {
+        try { cycleStep3Obs.disconnect(); } catch (_) {}
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

@@ -1222,14 +1222,15 @@ function clickElementFast(el) {
   try { btn.click(); } catch (_) {}
 }
 
-let instantRebetScheduled = false;
+let lastInstantRebetClick = 0;
 function scheduleInstantRebetCheck() {
-  if (!autoRebetArmed || instantRebetScheduled) return;
-  instantRebetScheduled = true;
-  requestAnimationFrame(() => {
-    instantRebetScheduled = false;
-    if (autoRebetArmed) tryClickInstantRebet();
-  });
+  if (!autoRebetArmed) return;
+  // Synchronous microtask execution: fires the instant the DOM mounts without 16ms requestAnimationFrame paint delay
+  if (Date.now() - lastInstantRebetClick < 250) return;
+  const clicked = tryClickInstantRebet();
+  if (clicked) {
+    lastInstantRebetClick = Date.now();
+  }
 }
 
 
