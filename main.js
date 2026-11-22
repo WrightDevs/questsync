@@ -18,9 +18,6 @@ const {
   TOGGLE_UPDATE_DEFAULT_STAKE_JS,
   MONITOR_URLS,
   CHECK_BETPAWA_UNAVAILABLE_JS,
-  HIGHLIGHT_BETANO_OPTIONS_JS,
-  HIGHLIGHT_BETPAWA_NEXT_GOAL_JS,
-  SELECT_BETPAWA_NEXT_GOAL_AND_OPEN_SLIP_JS,
   oddsReadCode,
   readFieldCode,
   PLACE_BET_JS,
@@ -2211,15 +2208,6 @@ ipcMain.on('view:match-changed', (e, payload) => {
   }
 });
 
-async function handleSportyMatchSync(data) {
-  // Disabled: monitor auto-search on pane game load is stopped per user instruction
-  return;
-}
-
-ipcMain.on('sporty:match-sync', (_e, _data) => {
-  // Disabled: monitor auto-search on pane game load is stopped per user instruction
-});
-
 ipcMain.on('view:slip-cleared', (e) => {
   lastStakeByView.delete(e.sender.id);
   preparedRebetStakes.delete(e.sender.id);
@@ -2374,26 +2362,10 @@ function attachMonitorInputHandlers(wc) {
     if (!wc.isDestroyed()) wc.setZoomFactor(monitorConfig.zoom);
   });
 
-  const checkBetPawaMatchPage = (targetUrl) => {
-    if (!wc || wc.isDestroyed() || monitorConfig.site !== 'betpawa') return;
-    const u = String(targetUrl || wc.getURL() || '').toLowerCase();
-    if (u.includes('/events/') || u.includes('/event/') || u.includes('/matches/') || u.includes('/match/')) {
-      setTimeout(() => {
-        if (!wc || wc.isDestroyed() || monitorConfig.site !== 'betpawa') return;
-        wc.executeJavaScript(SELECT_BETPAWA_NEXT_GOAL_AND_OPEN_SLIP_JS).catch(() => { });
-      }, 700);
-    }
-  };
-
   wc.on('did-finish-load', () => {
     if (!wc.isDestroyed()) {
       wc.setZoomFactor(monitorConfig.zoom);
-      checkBetPawaMatchPage(wc.getURL());
     }
-  });
-
-  wc.on('did-navigate-in-page', (_e, url) => {
-    checkBetPawaMatchPage(url);
   });
 
   wc.on('before-input-event', (event, input) => {
