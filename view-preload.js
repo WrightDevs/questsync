@@ -1140,9 +1140,38 @@ function scheduleSlipCheck() {
 
 // Instant Rebet Watcher: fires synchronously on DOM microtask (<0.1ms) the instant Rebet appears
 let autoRebetArmed = false;
-ipcRenderer.on('set-auto-rebet-armed', (_e, val) => {
+let instantRebetObs = null;
+
+function setAutoRebetArmedState(val) {
   autoRebetArmed = !!val;
-  if (autoRebetArmed) tryClickInstantRebet();
+  if (autoRebetArmed) {
+    if (!instantRebetObs) {
+      try {
+        instantRebetObs = new MutationObserver(() => {
+          scheduleInstantRebetCheck();
+        });
+      } catch (_) {}
+    }
+    if (instantRebetObs && document.documentElement) {
+      try {
+        instantRebetObs.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['class', 'style', 'data-op']
+        });
+      } catch (_) {}
+    }
+    tryClickInstantRebet();
+  } else {
+    if (instantRebetObs) {
+      try { instantRebetObs.disconnect(); } catch (_) {}
+    }
+  }
+}
+
+ipcRenderer.on('set-auto-rebet-armed', (_e, val) => {
+  setAutoRebetArmedState(val);
 });
 
 function isElementClickable(el) {
@@ -1203,14 +1232,7 @@ function scheduleInstantRebetCheck() {
   });
 }
 
-try {
-  const instantRebetObs = new MutationObserver(() => {
-    scheduleInstantRebetCheck();
-  });
-  if (document.documentElement) {
-    instantRebetObs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-op'] });
-  }
-} catch (_) {}
+
 
 window.addEventListener('DOMContentLoaded', () => {
   if (!document.body) return;
@@ -1699,7 +1721,7 @@ function wireBetslipAutoConfirm(triggerEl) {
   // 3. Fallback polling loop (safety net)
   let waited = 0;
   activeConfirmPoll = setInterval(() => {
-    waited += 10;
+    waited += 20;
     if (waited > 3500) {
       clearInterval(activeConfirmPoll);
       activeConfirmPoll = null;
@@ -1727,7 +1749,7 @@ function wireBetslipAutoConfirm(triggerEl) {
     if (confirmBtn) {
       doConfirm(confirmBtn);
     }
-  }, 10);
+  }, 20);
 }
 
 document.addEventListener('click', (e) => {

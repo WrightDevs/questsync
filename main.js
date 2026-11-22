@@ -584,7 +584,16 @@ function clearViews() {
       const idx = views.indexOf(v);
       if (idx >= 0) syncProfileFromView(idx);
     } catch (_) { }
-    try { viewEditableFocus.delete(v.webContents.id); } catch (_) { }
+    try {
+      const vid = v.webContents?.id;
+      if (vid) {
+        viewEditableFocus.delete(vid);
+        lastStakeByView.delete(vid);
+        lastFailed.delete(vid);
+        rebetExtraByView.delete(vid);
+        preparedRebetStakes.delete(vid);
+      }
+    } catch (_) { }
     try { win.contentView.removeChildView(v); } catch (_) { }
     try { v.webContents.close(); } catch (_) { }
   }

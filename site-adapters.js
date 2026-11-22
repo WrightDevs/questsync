@@ -1834,7 +1834,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
     const logTrace = (...args) => {
       const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
       try { console.log('[AutoRebet:Trace]', msg); } catch (_) {}
-      traceLogs.push(msg);
+      if (traceLogs.length < 100) traceLogs.push(msg);
     };
 
     const isDepositText = (t) => {
@@ -2567,7 +2567,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
     }
 
     try {
-      for (let cWait = 0; cWait < 1500; cWait++) {
+      for (let cWait = 0; cWait < 450; cWait++) {
         if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
 
         if (confirmed || isSuccessModalOpen() || tryFindRebet()) {
@@ -2583,7 +2583,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
 
           // Check secondary confirm (e.g. odds change prompt)
           for (let sub = 0; sub < 20; sub++) {
-            await wait(5);
+            await wait(10);
             const nextC = findConfirmCandidate(confirmBtn);
             if (nextC && nextC !== confirmBtn) {
               logTrace('Cycle Step 2: Secondary confirm found on sub-attempt ' + sub + ':', norm(nextC));
@@ -2593,7 +2593,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
           }
           break;
         }
-        await wait(2);
+        await wait(8);
       }
     } finally {
       if (cycleStep2Obs) {
@@ -2613,7 +2613,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
     // ─────────────────────────────────────────────────────────────────────────────
     let rebetClicked = false;
     logTrace('Cycle Step 3: Waiting for Rebet button...');
-    for (let rWait = 0; rWait < 2000; rWait++) {
+    for (let rWait = 0; rWait < 500; rWait++) {
       if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
 
       const rebetBtn = tryFindRebet();
@@ -2627,7 +2627,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
       }
 
       // If preload MutationObserver already clicked Rebet in <0.1ms (only valid if confirmed!):
-      if (confirmed && rWait > 15 && !isSuccessModalOpen()) {
+      if (confirmed && rWait > 4 && !isSuccessModalOpen()) {
         const slipRoot = document.querySelector('.m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i]');
         if (slipRoot && isVis(slipRoot)) {
           logTrace('Cycle Step 3: Preload observer closed modal, slip visible');
@@ -2636,7 +2636,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
         }
       }
 
-      await wait(2);
+      await wait(8);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -2645,7 +2645,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
     // ─────────────────────────────────────────────────────────────────────────────
     let slipReady = false;
     logTrace('Cycle Step 4: Waiting for betslip to be ready for next cycle...');
-    for (let nextWait = 0; nextWait < 2000; nextWait++) {
+    for (let nextWait = 0; nextWait < 500; nextWait++) {
       if (window.__mfas_auto_rebet_stop) return { aborted: true, traceLogs };
 
       const locked = checkOddsLocked();
@@ -2655,7 +2655,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
       if (noBal) return { insufficientBalance: true, error: noBal.msg, traceLogs };
 
       // Success modal still lingering? Click rebet again to dismiss
-      if (nextWait % 50 === 0 && isSuccessModalOpen()) {
+      if (nextWait % 15 === 0 && isSuccessModalOpen()) {
         const rebetBtn = tryFindRebet();
         if (rebetBtn) triggerClick(rebetBtn);
       }
@@ -2666,7 +2666,7 @@ const EXECUTE_ATTACK_CYCLE_JS = (targetStake, isFinalCycle = false) => `
         slipReady = true;
         break;
       }
-      await wait(2);
+      await wait(8);
     }
 
     if (!confirmed && !isSuccessModalOpen()) {
