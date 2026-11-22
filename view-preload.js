@@ -325,7 +325,7 @@ function extractTeamsFromPageHeader() {
 
 function normalizeOutcomeLabel(raw) {
   const t = String(raw || '').replace(/\s+/g, ' ').trim();
-  const up = t.toUpperCase();
+  let up = t.toUpperCase();
   if (up === 'HOME' || up === 'W1') return '1';
   if (up === 'DRAW' || up === 'TIE') return 'X';
   if (up === 'AWAY' || up === 'W2') return '2';
@@ -334,7 +334,62 @@ function normalizeOutcomeLabel(raw) {
   if (up === 'HOME/AWAY' || up === '1/2') return '12';
   if (up === 'YES') return 'GG';
   if (up === 'NO') return 'NG';
+  up = up.replace(/^HOME\b/i, '1').replace(/^AWAY\b/i, '2').replace(/^DRAW\b/i, 'X');
   return up;
+}
+
+function cleanMarketTitle(str) {
+  if (!str) return '';
+  let t = String(str).replace(/\s+/g, ' ').trim();
+  t = t.replace(/\s*\(\s*i\s*\)\s*/gi, ' ');
+  t = t.replace(/[★☆]/g, ' ');
+  t = t.replace(/\s*\+\s*\d+\s*$/, '');
+  t = t.replace(/\s+/g, ' ').trim();
+  return t.slice(0, 60);
+}
+
+function isProbableColumnHeader(text) {
+  const norm = String(text || '').trim().toLowerCase();
+  return /^(over|under|home|draw|away|yes|no|1|x|2|goals|total|spread)$/i.test(norm)
+    || /^[+-]?\d+(\.\d+)?$/.test(norm);
+}
+
+function normMarket(str) {
+  return String(cleanMarketTitle(str) || '')
+    .toLowerCase()
+    .replace(/[^\w]/g, '');
+}
+
+function matchMarketName(candidateTitle, wantedMarket) {
+  if (!candidateTitle || !wantedMarket) return false;
+  const cNorm = normMarket(candidateTitle);
+  const wNorm = normMarket(wantedMarket);
+  if (cNorm === wNorm) return true;
+  const isBothTeams = (s) => s.includes('bothteam') || s.includes('ggng') || s === 'gg' || s === 'btts';
+  if (isBothTeams(cNorm) && isBothTeams(wNorm)) return true;
+  return false;
+}
+
+function extractMarketTitleFromGroup(group) {
+  if (!group) return '';
+  const titleEl = group.querySelector(
+    '[data-op="market-group-title"], [data-op*="market-title" i], [data-op*="market-header" i], [data-op*="market-group-title" i], .m-market-header, .m-market-title, [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="market__header" i], [class*="market-toggle" i], h3, h4, h5'
+  );
+  if (titleEl) {
+    const txt = cleanMarketTitle(titleEl.innerText || titleEl.textContent);
+    if (txt && !isProbableColumnHeader(txt)) return txt;
+  }
+  if (group.previousElementSibling) {
+    const prev = group.previousElementSibling;
+    const prevTitle = prev.matches && prev.matches('[class*="header" i], [class*="title" i], [data-op*="header" i], [data-op*="title" i], .m-market-header, .m-market-title')
+      ? prev
+      : prev.querySelector('[class*="header" i], [class*="title" i], .m-market-header, .m-market-title');
+    if (prevTitle) {
+      const txt = cleanMarketTitle(prevTitle.innerText || prevTitle.textContent);
+      if (txt && !isProbableColumnHeader(txt)) return txt;
+    }
+  }
+  return '';
 }
 
 function extractOutcomeLabelFromBtn(btn) {
@@ -350,7 +405,7 @@ function extractOutcomeLabelFromBtn(btn) {
     .filter(s => s && !/^\d+\.\d+$/.test(s) && s !== '--');
   if (parts.length) return normalizeOutcomeLabel(parts[0]);
 
-  // Football.com fallback: look up column label from card's market title bar or sibling index
+  // Football.com / card fallback
   try {
     const card = findMatchCard(btn);
     if (card) {
@@ -375,19 +430,166 @@ function extractOutcomeLabelFromBtn(btn) {
 }
 
 function extractMarketName(outcomeBtn, card) {
-  // Site-aware market container lookup (SportyBet & Football.com)
-  const group = outcomeBtn.closest(
-    '[data-op="market-group"], [data-op*="market" i], [class*="market-item" i], [class*="market-group" i], section[class*="market" i], .m-market, .m-market-group, .m-table, [class*="m-market" i], [class*="accordion" i], [class*="group" i]'
-  );
-  if (group && (!card || card.contains(group))) {
-    const title = group.querySelector(
-      '[data-op="market-group-title"], [data-op*="market-title" i], [data-op*="title" i], [data-op*="header" i], .m-market-header, .m-market-title, .m-table-header, [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="title" i], [class*="header" i], [class*="name" i], h3, h4, h5'
+  if (!outcomeBtn) return '';
+
+  // 1. Walk UP ancestor tree from outcomeBtn looking for the enclosing market section/container
+  let el = outcomeBtn.parentElement;
+  while (el && el !== document.body && el !== document.documentElement && (!card || card.contains(el))) {
+    const isMarketContainer = el.matches && el.matches(
+      '[data-op="market-group"], [data-op*="market" i], [class*="market-item" i], [class*="market-group" i], [class*="market-card" i], section[class*="market" i], .m-market, .m-market-group, [class*="accordion" i], [class*="collapse" i]'
     );
-    if (title && !outcomeBtn.contains(title)) {
-      return String(title.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+
+    const titleEl = el.querySelector(
+      '[data-op="market-group-title"], [data-op*="market-title" i], [data-op*="market-header" i], [data-op*="market-group-title" i], .m-market-header, .m-market-title, [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="market__header" i], [class*="market-toggle" i]'
+    );
+
+    if (titleEl && !outcomeBtn.contains(titleEl)) {
+      const txt = cleanMarketTitle(titleEl.innerText || titleEl.textContent);
+      if (txt && txt.length >= 2 && !isProbableColumnHeader(txt)) {
+        return txt;
+      }
+    }
+
+    if (el.previousElementSibling) {
+      const prev = el.previousElementSibling;
+      const prevTitle = prev.matches && prev.matches('[class*="header" i], [class*="title" i], [data-op*="header" i], [data-op*="title" i], .m-market-header, .m-market-title')
+        ? prev
+        : prev.querySelector('[class*="header" i], [class*="title" i], .m-market-header, .m-market-title');
+      if (prevTitle) {
+        const txt = cleanMarketTitle(prevTitle.innerText || prevTitle.textContent);
+        if (txt && txt.length >= 2 && !isProbableColumnHeader(txt)) {
+          return txt;
+        }
+      }
+    }
+
+    el = el.parentElement;
+  }
+
+  // 2. Card in match list view fallback
+  if (card) {
+    const cardTitle = card.querySelector('[data-op="classic-match-card-market-title-bar"], [data-op*="market-title"]');
+    if (cardTitle) {
+      const txt = cleanMarketTitle(cardTitle.innerText || cardTitle.textContent);
+      if (txt && !isProbableColumnHeader(txt)) return txt;
     }
   }
+
   return '';
+}
+
+function extractRowSpecifier(outcomeBtn, row) {
+  if (!row) return '';
+  const specEl = row.querySelector(
+    '[data-op*="specifier" i], [data-op*="threshold" i], [class*="specifier" i], [class*="threshold" i], [class*="target" i], [class*="handicap" i], [class*="score" i], [class*="line" i]'
+  );
+  if (specEl && !outcomeBtn.contains(specEl) && !specEl.contains(outcomeBtn)) {
+    const txt = String(specEl.textContent || '').trim();
+    if (txt && !/^\d+\.\d{2,}$/.test(txt)) return txt;
+  }
+
+  const children = Array.from(row.children || []);
+  for (const child of children) {
+    if (child.contains(outcomeBtn) || outcomeBtn.contains(child)) continue;
+    if (child.matches && child.matches('[data-op="outcome-btn"], .m-outcome, [class*="m-outcome"], [class*="outcome-btn" i]')) continue;
+    if (child.querySelector('[data-op="outcome-btn"], .m-outcome, [class*="m-outcome"]')) continue;
+    const txt = String(child.textContent || '').trim();
+    if (/^[+-]?\d+(?:\.\d+)?$/.test(txt) || /^[0-9]+\s*[-:]\s*[0-9]+$/.test(txt)) {
+      return txt;
+    }
+  }
+
+  return '';
+}
+
+function extractColHeader(outcomeBtn, row, marketName) {
+  if (!row) return '';
+  const rowBtns = Array.from(row.querySelectorAll(
+    '[data-op="outcome-btn"], .m-outcome, [class*="m-outcome"], [class*="outcome-btn" i], [class*="outcome-item" i]'
+  )).filter(isElementVisible);
+  const colIdx = rowBtns.indexOf(outcomeBtn);
+  if (colIdx < 0) return '';
+
+  const table = outcomeBtn.closest('.m-table, [class*="table" i], [class*="grid" i], table, [class*="market" i]');
+  const headerRow = table ? table.querySelector(
+    '.m-table-header, [class*="table-header" i], [class*="header-row" i], [class*="table-row--header" i], thead tr'
+  ) : null;
+
+  if (headerRow) {
+    const colCells = Array.from(headerRow.children).map(c => (c.textContent || '').trim()).filter(Boolean);
+    if (colCells.length === rowBtns.length && colCells[colIdx]) {
+      return colCells[colIdx];
+    }
+    if (colCells.length > rowBtns.length) {
+      const offset = colCells.length - rowBtns.length;
+      if (colCells[colIdx + offset]) return colCells[colIdx + offset];
+    }
+  }
+
+  const mNorm = normMarket(marketName);
+  if (mNorm.includes('overunder') || mNorm.includes('total') || mNorm.includes('goals')) {
+    if (rowBtns.length === 2) return colIdx === 0 ? 'Over' : 'Under';
+  }
+  if (mNorm.includes('1x2') || rowBtns.length === 3) {
+    return colIdx === 0 ? '1' : (colIdx === 1 ? 'X' : '2');
+  }
+  if (mNorm.includes('bothteam') || mNorm.includes('gg')) {
+    if (rowBtns.length === 2) return colIdx === 0 ? 'Yes' : 'No';
+  }
+
+  return '';
+}
+
+function extractOutcomeDetails(outcomeBtn, card) {
+  if (!outcomeBtn) {
+    return { market: '', label: '', colHeader: '', specifier: '', colIdx: -1, rowBtnsLength: 0 };
+  }
+
+  let market = extractMarketName(outcomeBtn, card);
+  const row = outcomeBtn.closest('.m-table-row, [class*="table-row" i], [class*="row" i], tr') || outcomeBtn.parentElement;
+  const rowBtns = row ? Array.from(row.querySelectorAll(
+    '[data-op="outcome-btn"], .m-outcome, [class*="m-outcome"], [class*="outcome-btn" i], [class*="outcome-item" i]'
+  )).filter(isElementVisible) : [];
+  const colIdx = rowBtns.indexOf(outcomeBtn);
+  const specifier = extractRowSpecifier(outcomeBtn, row);
+  const colHeader = extractColHeader(outcomeBtn, row, market);
+  const explicit = extractOutcomeLabelFromBtn(outcomeBtn);
+
+  if (!market) {
+    if (rowBtns.length === 3) market = '1X2';
+    else if (rowBtns.length === 2 && colHeader && /over|under/i.test(colHeader)) market = 'Over/Under';
+  }
+
+  let label = '';
+  if (explicit && !/^\d+\.\d+$/.test(explicit)) {
+    label = explicit;
+  }
+
+  if (!label) {
+    if (colHeader && specifier) {
+      label = `${colHeader} ${specifier}`;
+    } else if (colHeader) {
+      label = colHeader;
+    } else if (specifier) {
+      label = specifier;
+    }
+  } else {
+    if (specifier && !label.includes(specifier)) {
+      const mNorm = normMarket(market);
+      if (mNorm.includes('over') || mNorm.includes('under') || mNorm.includes('handicap') || mNorm.includes('total')) {
+        label = `${label} ${specifier}`;
+      }
+    }
+  }
+
+  return {
+    market,
+    label: normalizeOutcomeLabel(label),
+    colHeader: normalizeOutcomeLabel(colHeader),
+    specifier,
+    colIdx,
+    rowBtnsLength: rowBtns.length,
+  };
 }
 
 function stripCountryPrefix(pathname) {
@@ -412,22 +614,18 @@ function extractSemantic(target, clickable) {
       const card = findMatchCard(outBtn);
       const srMatchId = extractCardSrMatchId(card);
       const teams = extractTeamsFromCard(card);
-      const row = outBtn.parentElement;
-      const rowBtns = row
-        ? Array.from(row.children).filter(c => c.matches && c.matches('[data-op="outcome-btn"], .m-outcome, [class*="m-outcome"], [class*="outcome" i], [class*="odd" i]'))
-        : [];
-      const outcomeIndex = rowBtns.indexOf(outBtn);
-      const outcomeLabel = extractOutcomeLabelFromBtn(outBtn);
-      const market = extractMarketName(outBtn, card);
-      if (srMatchId || teams.length === 2 || outcomeLabel) {
+      const outDetails = extractOutcomeDetails(outBtn, card);
+      if (srMatchId || teams.length === 2 || outDetails.label || outDetails.market) {
         return {
           kind: 'outcome',
           srMatchId,
           teams,
-          market,
-          outcomeLabel,
-          outcomeIndex: outcomeIndex >= 0 ? outcomeIndex : null,
-          rowSize: rowBtns.length || null,
+          market: outDetails.market,
+          outcomeLabel: outDetails.label,
+          colLabel: outDetails.colHeader,
+          specifier: outDetails.specifier,
+          outcomeIndex: outDetails.colIdx >= 0 ? outDetails.colIdx : null,
+          rowSize: outDetails.rowBtnsLength || null,
         };
       }
     }
@@ -601,70 +799,101 @@ function findCardSemanticMatch(sem) {
   return null;
 }
 
+function findOutcomeTarget(sem) {
+  if (!sem) return null;
+
+  // 1. Identify scope: match page or match card in list
+  let card = findCardSemanticMatch(sem);
+  const isMatchPage = !card && !!document.querySelector('main, [class*="match-detail" i], [class*="event-detail" i], .match-info');
+  if (isMatchPage) {
+    card = document.querySelector('main, [class*="match-detail" i], [class*="event-detail" i]') || document.body;
+  }
+  if (!card) {
+    console.warn('[MirrorReplay] Outcome skipped: match card/page not found on target pane', sem);
+    return null;
+  }
+
+  // 2. Identify market container: REQUIRE market match
+  let marketScope = card;
+  if (sem.market) {
+    const groups = Array.from(card.querySelectorAll(
+      '[data-op="market-group"], [data-op*="market" i], [class*="market-item" i], [class*="market-group" i], [class*="market-card" i], section[class*="market" i], .m-market, .m-market-group, [class*="accordion" i], [class*="group" i]'
+    )).filter(isElementVisible);
+
+    const matchedGroup = groups.find(g => {
+      const gTitle = extractMarketTitleFromGroup(g);
+      return matchMarketName(gTitle, sem.market);
+    });
+
+    if (matchedGroup) {
+      marketScope = matchedGroup;
+    } else {
+      console.warn(`[MirrorReplay] Outcome skipped: market "${sem.market}" not found on target pane`);
+      return null;
+    }
+  }
+
+  // 3. Buttons inside the market scope
+  const btns = getOutcomeButtonsInContainer(marketScope);
+  if (!btns.length) {
+    console.warn(`[MirrorReplay] Outcome skipped: no outcome buttons in market "${sem.market}" on target pane`);
+    return null;
+  }
+
+  const wantLabel = normalizeOutcomeLabel(sem.outcomeLabel || '');
+  const wantCol = normalizeOutcomeLabel(sem.colLabel || '');
+  const wantSpec = String(sem.specifier || '').trim();
+
+  // 4. Match within the market: STRICT selection match
+  // 4a. Exact composite label match
+  if (wantLabel) {
+    for (const b of btns) {
+      const bDetails = extractOutcomeDetails(b, card);
+      const bLabel = bDetails.label;
+      if (bLabel && (bLabel === wantLabel || normText(bLabel) === normText(wantLabel))) {
+        return b;
+      }
+    }
+  }
+
+  // 4b. Match by column + specifier
+  if (wantCol && wantSpec) {
+    for (const b of btns) {
+      const bDetails = extractOutcomeDetails(b, card);
+      if (bDetails.colHeader === wantCol && bDetails.specifier === wantSpec) {
+        return b;
+      }
+    }
+  }
+
+  // 4c. Table market with row specifier: match by specifier and column index
+  if (wantSpec && sem.outcomeIndex != null) {
+    for (const b of btns) {
+      const bDetails = extractOutcomeDetails(b, card);
+      if (bDetails.specifier === wantSpec && bDetails.colIdx === sem.outcomeIndex) {
+        return b;
+      }
+    }
+  }
+
+  // 4d. Simple 1-row market (e.g. 1X2 or GG/NG): if no specifier and market was matched
+  if (!wantSpec && sem.market && sem.outcomeIndex != null) {
+    if (sem.rowSize && btns.length === sem.rowSize && btns[sem.outcomeIndex]) {
+      return btns[sem.outcomeIndex];
+    }
+  }
+
+  // 5. NO CONFIDENT MATCH FOUND — DO NOT GUESS OR FALL BACK TO UNRELATED ELEMENTS!
+  console.warn(`[MirrorReplay] Outcome skipped: could not find matching selection "${sem.outcomeLabel}" in market "${sem.market}"`);
+  return null;
+}
+
 function findCrossSiteTarget(m) {
   const sem = m.semantic;
   if (!sem) return null;
 
   if (sem.kind === 'outcome') {
-    let card = findCardSemanticMatch(sem);
-    const isMatchPage = !card && !!document.querySelector('main, [class*="match-detail" i], [class*="event-detail" i], .match-info');
-    if (isMatchPage) {
-      card = document.querySelector('main, [class*="match-detail" i], [class*="event-detail" i]') || document.body;
-    }
-    if (!card) return null;
-    let scope = card;
-    if (sem.market && (isMatchPage || card === document.body || card.tagName === 'MAIN' || (card.matches && card.matches('[class*="match-detail" i], [class*="event-detail" i], .match-info')))) {
-      const mNorm = normText(sem.market);
-      const groups = Array.from(card.querySelectorAll(
-        '[data-op="market-group"], [data-op*="market" i], [class*="market-item" i], [class*="market-group" i], section[class*="market" i], .m-market, .m-market-group, .m-table, [class*="m-market" i], [class*="accordion" i], [class*="group" i]'
-      )).filter(isElementVisible);
-      const matchedGroup = groups.find(g => {
-        const hdr = g.querySelector(
-          '[data-op="market-group-title"], [data-op*="market-title" i], [data-op*="title" i], [data-op*="header" i], .m-market-header, .m-market-title, .m-table-header, [class*="market-title" i], [class*="market-header" i], [class*="market-item__title" i], [class*="title" i], [class*="header" i], [class*="name" i], h3, h4, h5'
-        );
-        const ht = normText(hdr ? hdr.textContent : '');
-        return ht && (ht === mNorm || ht.includes(mNorm) || mNorm.includes(ht)
-          || ((mNorm.includes('gg') || mNorm.includes('both teams')) && (ht.includes('gg') || ht.includes('both teams'))));
-      });
-      if (matchedGroup) {
-        scope = matchedGroup;
-      } else {
-        // Market specified for a match page was not found (different page, market not loaded, or suspended)
-        // DO NOT search all buttons on document.body to prevent clicking the wrong market!
-        return null;
-      }
-    }
-
-    const btns = getOutcomeButtonsInContainer(scope);
-    if (!btns.length) return null;
-
-    if (sem.outcomeLabel) {
-      const want = normalizeOutcomeLabel(sem.outcomeLabel);
-      const byLabel = btns.find(b => {
-        const lbl = extractOutcomeLabelFromBtn(b);
-        return lbl === want || (lbl && want && (lbl.includes(want) || want.includes(lbl)));
-      });
-      if (byLabel) return byLabel;
-    }
-
-    if (sem.outcomeIndex != null && sem.rowSize) {
-      // Match by sibling row of exact rowSize
-      const grouped = new Map();
-      for (const b of btns) {
-        const p = b.parentElement;
-        if (!grouped.has(p)) grouped.set(p, []);
-        grouped.get(p).push(b);
-      }
-      for (const list of grouped.values()) {
-        if (list.length === sem.rowSize && list[sem.outcomeIndex]) {
-          return list[sem.outcomeIndex];
-        }
-      }
-      if (btns[sem.outcomeIndex]) return btns[sem.outcomeIndex];
-    } else if (sem.outcomeIndex != null && btns[sem.outcomeIndex]) {
-      return btns[sem.outcomeIndex];
-    }
-    return null;
+    return findOutcomeTarget(sem);
   }
 
   if (sem.kind === 'market-tab') {
@@ -1548,27 +1777,6 @@ document.addEventListener('click', (e) => {
     notifyStakeIfChanged();
   }
 
-  // Detect game / match selection on SportyBet and sync to monitor
-  if (/sportybet/i.test(location.hostname)) {
-    const card = findMatchCard(target) || target.closest('[class*="match" i], [class*="game" i], [class*="event" i], .m-table-cell, .match-info');
-    if (card) {
-      const teams = extractTeamsFromCard(card);
-      if (teams && teams.length >= 2) {
-        ipcRenderer.send('sporty:match-sync', {
-          team1: teams[0],
-          team2: teams[1],
-          query: `${teams[0]} vs ${teams[1]}`,
-        });
-      } else if (teams && teams.length === 1) {
-        ipcRenderer.send('sporty:match-sync', {
-          team1: teams[0],
-          team2: '',
-          query: teams[0],
-        });
-      }
-    }
-  }
-
   const isInput = (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
     || target.isContentEditable || !!target.closest('input, textarea, [contenteditable]')) && !isStakeField;
   const clickable = target.closest(
@@ -1622,14 +1830,6 @@ document.addEventListener('input', (e) => {
   const isSearch = el.type === 'search'
     || /search/i.test(`${el.placeholder || ''} ${el.name || ''} ${el.className || ''}`);
 
-  if (/sportybet/i.test(location.hostname) && isSearch && el.value && el.value.trim().length >= 2) {
-    ipcRenderer.send('sporty:match-sync', {
-      query: el.value.trim(),
-      team1: el.value.trim(),
-      team2: '',
-    });
-  }
-
   send({
     type: 'input',
     selector: cssPath(el),
@@ -1650,9 +1850,18 @@ function findTarget(m) {
     return findCrossSiteTarget(m);
   }
 
-  // 0. For outcomes (odds selections), market headers, market tabs, and match navigation,
-  // semantic identity matching is highest fidelity
-  if (m.semantic && (m.semantic.kind === 'outcome' || m.semantic.kind === 'market-header' || m.semantic.kind === 'market-tab' || m.semantic.kind === 'match-nav')) {
+  // 0. Outcomes (odds selections): STRICT semantic matching ONLY.
+  // NEVER fall through to CSS selectors, clickableSelector, or coordinates for outcomes!
+  if (m.semantic && m.semantic.kind === 'outcome') {
+    const outcomeEl = findCrossSiteTarget(m);
+    if (!outcomeEl) {
+      console.warn(`[MirrorReplay] Skipped outcome replay: no confident match for "${m.semantic.market || 'Unknown Market'}: ${m.semantic.outcomeLabel || 'Unknown Outcome'}"`);
+    }
+    return outcomeEl;
+  }
+
+  // Other semantic elements (market headers, tabs, match navigation)
+  if (m.semantic && (m.semantic.kind === 'market-header' || m.semantic.kind === 'market-tab' || m.semantic.kind === 'match-nav')) {
     const semHit = findCrossSiteTarget(m);
     if (semHit) return semHit;
   }

@@ -2203,119 +2203,12 @@ ipcMain.on('view:match-changed', (e, payload) => {
 });
 
 async function handleSportyMatchSync(data) {
-  if (!data || (!data.team1 && !data.query)) return;
-  const q = (data.team1 || data.query || '').trim();
-  const t1 = (data.team1 || '').trim().toLowerCase();
-  const t2 = (data.team2 || '').trim().toLowerCase();
-
-  // If the user has hidden/closed the monitor in settings, respect that and do not force it open
-  if (!monitorConfig.open) return;
-
-  const wc = getActiveMonitorWebContents();
-  if (!wc || wc.isDestroyed()) return;
-
-  if (monitorConfig.site === 'betano') {
-    // 1. Check if match is already on the currently loaded Betano page
-    let found = await wc.executeJavaScript(`(() => {
-      const t1 = ${JSON.stringify(t1)};
-      const t2 = ${JSON.stringify(t2)};
-      const links = Array.from(document.querySelectorAll('a[href*="/match-odds/"]'));
-      for (const a of links) {
-        const text = (a.innerText || a.textContent || '').toLowerCase();
-        const href = (a.getAttribute('href') || '').toLowerCase();
-        if ((t1 && (text.includes(t1) || href.includes(t1))) || (t2 && (text.includes(t2) || href.includes(t2)))) {
-          a.click();
-          return true;
-        }
-      }
-      return false;
-    })()`).catch(() => false);
-
-    if (!found) {
-      // Navigate to Betano football matches
-      wc.loadURL('https://www.betano.ng/sport/football/').catch(() => { });
-      for (let t = 0; t < 5; t++) {
-        await sleep(600);
-        found = await wc.executeJavaScript(`(() => {
-          const t1 = ${JSON.stringify(t1)};
-          const t2 = ${JSON.stringify(t2)};
-          const links = Array.from(document.querySelectorAll('a[href*="/match-odds/"]'));
-          for (const a of links) {
-            const text = (a.innerText || a.textContent || '').toLowerCase();
-            const href = (a.getAttribute('href') || '').toLowerCase();
-            if ((t1 && (text.includes(t1) || href.includes(t1))) || (t2 && (text.includes(t2) || href.includes(t2)))) {
-              a.click();
-              return true;
-            }
-          }
-          return false;
-        })()`).catch(() => false);
-        if (found) break;
-      }
-    }
-
-    // "if betano then all options should be highleted"
-    for (let t = 0; t < 6; t++) {
-      await sleep(400);
-      const res = await wc.executeJavaScript(HIGHLIGHT_BETANO_OPTIONS_JS).catch(() => ({ count: 0 }));
-      if (res && res.count > 0) break;
-    }
-
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('acc-status', { msg: `Betano: Loaded "${q}" — All odds options highlighted` });
-    }
-  } else {
-    // BetPawa
-    // Monitor country is strictly independent of panes!
-    let pawaCountry = monitorConfig.country || 'ng';
-    try {
-      const curU = wc.getURL();
-      if (curU && /betpawa\.com\.gh/i.test(curU)) pawaCountry = 'gh';
-      else if (curU && /betpawa\.ng/i.test(curU)) pawaCountry = 'ng';
-    } catch (_) {}
-    const base = pawaCountry === 'gh' ? 'https://www.betpawa.com.gh' : 'https://www.betpawa.ng';
-    const searchUrl = `${base}/search?q=${encodeURIComponent(data.team1 || q)}`;
-    wc.loadURL(searchUrl).catch(() => { });
-
-    // Wait for BetPawa search results and click match
-    for (let t = 0; t < 6; t++) {
-      await sleep(500);
-      const clicked = await wc.executeJavaScript(`(() => {
-        const t1 = ${JSON.stringify(t1)};
-        const t2 = ${JSON.stringify(t2)};
-        const links = Array.from(document.querySelectorAll('a[href*="/events/"], a[href*="/event/"], a[href*="/matches/"], a[href*="/match/"], a[href*="sport"]'));
-        for (const a of links) {
-          const text = (a.innerText || a.textContent || '').toLowerCase();
-          const href = (a.getAttribute('href') || '').toLowerCase();
-          if ((t1 && (text.includes(t1) || href.includes(t1))) || (t2 && (text.includes(t2) || href.includes(t2)))) {
-            a.click();
-            return true;
-          }
-        }
-        if (links.length > 0) {
-          links[0].click();
-          return true;
-        }
-        return false;
-      })()`).catch(() => false);
-      if (clicked) break;
-    }
-
-    // "when a game is opened on betpawa it picks the next goal option(as thpugh selecteed by the mouse)then open up betslips in the bottom nav as taht is where it monitos for the degen to tigger"
-    for (let t = 0; t < 8; t++) {
-      await sleep(500);
-      const res = await wc.executeJavaScript(SELECT_BETPAWA_NEXT_GOAL_AND_OPEN_SLIP_JS).catch(() => ({ ok: false }));
-      if (res && res.ok) break;
-    }
-
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('acc-status', { msg: `BetPawa: Loaded "${q}" — Next Goal selected & Betslip opened in bottom nav` });
-    }
-  }
+  // Disabled: monitor auto-search on pane game load is stopped per user instruction
+  return;
 }
 
-ipcMain.on('sporty:match-sync', (_e, data) => {
-  handleSportyMatchSync(data).catch(() => { });
+ipcMain.on('sporty:match-sync', (_e, _data) => {
+  // Disabled: monitor auto-search on pane game load is stopped per user instruction
 });
 
 ipcMain.on('view:slip-cleared', (e) => {
