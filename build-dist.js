@@ -296,7 +296,7 @@ async function main() {
       '--title',
       `QuestSync ${versionTag}`,
       '--notes',
-      `Release ${versionTag}: Single Bet mode hotkey fix, strict market & selection composite matching on replay, stopped monitor auto-search, throttled polling loops, and pre-warmed Rebet microtask execution.`,
+      `Release ${versionTag}: Fully decoupled odds monitor from betting panes (removed all pane match-syncing, auto-search, and automated market selection).`,
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
     if (pubRes.status === 0) {
