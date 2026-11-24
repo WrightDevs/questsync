@@ -1319,7 +1319,7 @@ function markUser(e) {
 );
 
 document.addEventListener('keydown', (e) => {
-  if (e.isTrusted && !replaying && !programmaticSuppressed) {
+  if (e.isTrusted && replayingCount === 0 && !programmaticSuppressed) {
     const active = document.activeElement;
     const inStake = active && (
       active.matches('.m-keybord-input, [data-op="betslip-keyboard-trigger"], input[name*="stake" i], input[class*="stake" i]') ||
@@ -1837,15 +1837,30 @@ document.addEventListener('click', (e) => {
 
 let scrollQueued = false;
 document.addEventListener('scroll', (e) => {
-  if (Date.now() - lastUserAction > 400 || scrollQueued || replaying || programmaticSuppressed) return;
+  if (replayingCount > 0 || programmaticSuppressed) return;
+  const isUser = (Date.now() - lastUserAction < 2000) || document.hasFocus();
+  if (!isUser) return;
+
+  if (document.hasFocus()) {
+    lastUserAction = Date.now();
+  }
+
+  if (scrollQueued) return;
   scrollQueued = true;
   requestAnimationFrame(() => {
     scrollQueued = false;
     const t = e.target;
     const isDoc = t === document || t === document.documentElement || t === document.body;
-    const el = isDoc ? document.scrollingElement : t;
+    const el = isDoc ? (document.scrollingElement || document.documentElement || document.body) : t;
+    if (!el) return;
     const max = el.scrollHeight - el.clientHeight;
-    send({ type: 'scroll', selector: isDoc ? null : cssPath(t), ratio: max > 0 ? el.scrollTop / max : 0 });
+    send({
+      type: 'scroll',
+      selector: isDoc ? null : (uniqueSelector(t) || cssPath(t)),
+      scrollTop: el.scrollTop,
+      maxScroll: max,
+      ratio: max > 0 ? el.scrollTop / max : 0
+    });
   });
 }, true);
 
@@ -1956,6 +1971,45 @@ async function findTargetWithRetry(m, maxMs = 300) {
   return null;
 }
 
+function findScrollableElement(selector) {
+  if (selector) {
+    try {
+      const el = document.querySelector(selector);
+      if (el && (el.scrollHeight - el.clientHeight > 10 || el.scrollWidth - el.clientWidth > 10)) {
+        return el;
+      }
+    } catch (_) {}
+  }
+
+  const candidates = [
+    document.scrollingElement,
+    document.documentElement,
+    document.body,
+    document.querySelector('#app'),
+    document.querySelector('.m-layout'),
+    document.querySelector('.m-main'),
+    document.querySelector('main'),
+    document.querySelector('.m-page'),
+    document.querySelector('#__nuxt'),
+    document.querySelector('#root')
+  ];
+
+  for (const c of candidates) {
+    if (c && c.scrollHeight - c.clientHeight > 20) {
+      return c;
+    }
+  }
+
+  try {
+    const anyScroll = Array.from(document.querySelectorAll('div, main, section')).find(
+      el => el.scrollHeight - el.clientHeight > 80 && /(auto|scroll)/.test(window.getComputedStyle(el).overflowY)
+    );
+    if (anyScroll) return anyScroll;
+  } catch (_) {}
+
+  return document.scrollingElement || document.documentElement || document.body;
+}
+
 ipcRenderer.on('mirror-replay', async (_e, m) => {
   replayingCount++;
   try {
@@ -2043,10 +2097,21 @@ ipcRenderer.on('mirror-replay', async (_e, m) => {
         }
       }
     } else if (m.type === 'scroll') {
-      const el = (!crossSite && m.selector)
-        ? (document.querySelector(m.selector) || document.scrollingElement)
-        : document.scrollingElement;
-      if (el) el.scrollTop = m.ratio * (el.scrollHeight - el.clientHeight);
+      const el = findScrollableElement(!crossSite ? m.selector : null);
+      if (el) {
+        const targetMax = el.scrollHeight - el.clientHeight;
+        if (targetMax > 0) {
+          const isCloseHeight = m.maxScroll != null && Math.abs(targetMax - m.maxScroll) < 60;
+          const targetTop = isCloseHeight && m.scrollTop != null
+            ? Math.min(targetMax, Math.max(0, m.scrollTop))
+            : Math.round(m.ratio * targetMax);
+
+          el.scrollTop = targetTop;
+          if (el === document.scrollingElement || el === document.documentElement || el === document.body) {
+            try { window.scrollTo({ top: targetTop, behavior: 'instant' }); } catch (_) {}
+          }
+        }
+      }
     } else if (m.type === 'input') {
       let el = null;
       if (crossSite) {
