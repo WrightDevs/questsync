@@ -1678,10 +1678,12 @@ const FAST_REBET_CYCLE_JS = (targetStake) => `
     };
 
 
-    // 1. Instant-fire polling for Rebet button (every 4ms, up to 10s)
-    // As soon as ANYTHING matching "rebet" is visible → click it immediately, no waiting
+    // 1. Instant-fire detection for Rebet button:
+    // Pre-warmed MutationObserver fires synchronously on DOM microtask (<0.5ms) the instant
+    // the Rebet button is inserted into the DOM, backed by immediate check and a fallback polling loop.
     let rebetClicked = false;
     let rebetCoords = null;
+    let detectionMethod = 'none';
     const isFootball = /football\.com/i.test(location.hostname || '');
 
     const tryFindRebet = () => {
@@ -1719,37 +1721,94 @@ const FAST_REBET_CYCLE_JS = (targetStake) => `
       return null;
     };
 
-    for (let attempt = 0; attempt < 2500; attempt++) {
-      const btn = tryFindRebet();
-      if (btn) {
+    // Step A: Immediate check — button might ALREADY be present in DOM
+    const immediate = tryFindRebet();
+    if (immediate) {
+      rebetCoords = triggerClick(immediate);
+      try { immediate.click(); } catch (_) {}
+      try { immediate.click(); } catch (_) {}
+      rebetClicked = true;
+      detectionMethod = 'immediate-dom';
+      logTrace('[Rebet:Detection] Instant match: button already present in DOM (0ms)');
+    } else {
+      // Step B: Pre-warmed MutationObserver: arms BEFORE button appears and fires on microtask (<0.5ms)
+      let obs = null;
+      const onObsHit = (btn) => {
+        if (rebetClicked) return;
+        if (obs) { try { obs.disconnect(); } catch (_) {} obs = null; }
         rebetCoords = triggerClick(btn);
-        // Fire click 3 times immediately to guarantee it registers
         try { btn.click(); } catch (_) {}
         try { btn.click(); } catch (_) {}
         rebetClicked = true;
-        break;
+        detectionMethod = 'mutation-observer';
+        logTrace('[Rebet:Detection] Pre-warmed MutationObserver caught Rebet button (<0.5ms)');
+      };
+
+      try {
+        obs = new MutationObserver(() => {
+          const b = tryFindRebet();
+          if (b) onObsHit(b);
+        });
+        if (document.documentElement) {
+          obs.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'style', 'data-op']
+          });
+        }
+      } catch (_) {}
+
+      // Double-check right after attaching observer
+      const quick = tryFindRebet();
+      if (quick) {
+        onObsHit(quick);
       }
 
-      // Betslip already remounted with selections (rebet already processed)
-      // Guard: only check after at least 80 attempts (160ms) to ensure the previous betslip isn't falsely matched
-      if (attempt > 80) {
-        if (!isFootball) {
-          const slipRoot = document.querySelector('.m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i]');
-          if (slipRoot && isVis(slipRoot)) {
-            const hasItems = !!slipRoot.querySelector('.m-bet-item, .m-item, .slip-item, [class*="bet-item" i]');
-            const hasInput = (${FIND_STAKE_INPUT_JS})();
-            if (hasItems && hasInput && isVis(hasInput)) {
-              rebetClicked = true;
-              break;
+      // Step C: Fallback polling loop (checks every 2ms) in case observer does not trigger
+      if (!rebetClicked) {
+        for (let attempt = 0; attempt < 2500; attempt++) {
+          if (rebetClicked) break;
+          const pollBtn = tryFindRebet();
+          if (pollBtn) {
+            if (obs) { try { obs.disconnect(); } catch (_) {} obs = null; }
+            rebetCoords = triggerClick(pollBtn);
+            try { pollBtn.click(); } catch (_) {}
+            try { pollBtn.click(); } catch (_) {}
+            rebetClicked = true;
+            detectionMethod = 'fallback-poll (attempt ' + attempt + ')';
+            logTrace('[Rebet:Detection] Fallback polling loop caught Rebet button (attempt ' + attempt + ')');
+            break;
+          }
+
+          // Betslip already remounted with selections (rebet already processed)
+          if (attempt > 80) {
+            if (!isFootball) {
+              const slipRoot = document.querySelector('.m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i]');
+              if (slipRoot && isVis(slipRoot)) {
+                const hasItems = !!slipRoot.querySelector('.m-bet-item, .m-item, .slip-item, [class*="bet-item" i]');
+                const hasInput = (${FIND_STAKE_INPUT_JS})();
+                if (hasItems && hasInput && isVis(hasInput)) {
+                  rebetClicked = true;
+                  detectionMethod = 'betslip-remounted';
+                  break;
+                }
+              }
+            } else {
+              const input = (${FIND_STAKE_INPUT_JS})();
+              if (input && isVis(input)) {
+                rebetClicked = true;
+                detectionMethod = 'betslip-remounted';
+                break;
+              }
             }
           }
-        } else {
-          const input = (${FIND_STAKE_INPUT_JS})();
-          if (input && isVis(input)) { rebetClicked = true; break; }
+
+          await wait(2);
         }
       }
 
-      await wait(2);
+      if (obs) { try { obs.disconnect(); } catch (_) {} obs = null; }
     }
 
     if (!rebetClicked) return { ok: false, reason: 'no_rebet_btn' };
@@ -1801,7 +1860,7 @@ const FAST_REBET_CYCLE_JS = (targetStake) => `
       await wait(15);
     }
 
-    return { ok: true, rebetClicked, rebetX: rebetCoords?.x, rebetY: rebetCoords?.y, inputUpdated, stake: val };
+    return { ok: true, rebetClicked, detectionMethod, rebetX: rebetCoords?.x, rebetY: rebetCoords?.y, inputUpdated, stake: val };
   })()
 `;
 

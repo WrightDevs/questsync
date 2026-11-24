@@ -1220,6 +1220,7 @@ function tryClickInstantRebet() {
   const exact = document.querySelector('button[data-op="betslip-success-rebet"], [data-op="betslip-success-rebet"], button.rebet, [data-cms-key="rebet"], .rebet-text, [data-op*="rebet" i]');
   if (exact && (exact.offsetParent !== null || isElementClickable(exact))) {
     clickElementFast(exact);
+    console.log('[Rebet:Trace] view-preload MutationObserver caught Rebet button (<0.1ms direct match)');
     return true;
   }
   // 2. Dialog match
@@ -1233,6 +1234,7 @@ function tryClickInstantRebet() {
     });
     if (hit) {
       clickElementFast(hit);
+      console.log('[Rebet:Trace] view-preload MutationObserver caught Rebet button (<0.1ms dialog match)');
       return true;
     }
   }

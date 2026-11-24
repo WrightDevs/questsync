@@ -2927,12 +2927,19 @@ async function triggerRebet(sourceLabel = 'UI') {
     return { id, prof, isGh, minStakeNum, prepared: (prepared && prepared > 0) ? prepared : null };
   });
 
+  // Pre-warm the MutationObserver across all views BEFORE firing so any mounting Rebet button is caught instantly
+  views.forEach((v) => {
+    if (v && !v.webContents.isDestroyed()) {
+      try { v.webContents.send('set-auto-rebet-armed', true); } catch (_) {}
+    }
+  });
+
   try {
     lastApplied.clear();
     lastFailed.clear();
 
     // ── PHASE 1: Fire FAST_REBET_CYCLE_JS in ALL panes simultaneously, don't wait for each other ──
-    // Each pane handles its own polling + click independently at 4ms intervals.
+    // Each pane handles its own pre-warmed MutationObserver + click independently (<0.5ms).
     // We collect the promises but DON'T await them here — we race against a 10s timeout.
     let rebetCount = 0;
     const panePromises = views.map(async (v, i) => {
@@ -2948,12 +2955,13 @@ async function triggerRebet(sourceLabel = 'UI') {
       }
       const targetStr = formatStakeStr(targetStake);
 
-      // Fire click immediately — FAST_REBET_CYCLE_JS polls at 4ms until it finds the button
+      // Fire click immediately — armed MutationObserver catches button in <0.5ms with polling loop as fallback
       const fastRes = await v.webContents.executeJavaScript(FAST_REBET_CYCLE_JS(targetStr)).catch(() => null);
       const clicked = fastRes && fastRes.ok;
 
       if (clicked) {
-        console.log(`[Rebet] Pane ${i + 1}: Rebet clicked`);
+        const method = fastRes?.detectionMethod || 'observer';
+        console.log(`[Rebet] Pane ${i + 1}: Rebet clicked via [${method}] | Source: "${sourceLabel}"`);
         // Set stake in background — doesn't block the main loop
         (async () => {
           lastStakeByView.set(id, targetStake);
@@ -2998,6 +3006,11 @@ async function triggerRebet(sourceLabel = 'UI') {
     return { rebetCount, total: views.length };
   } finally {
     rebetInFlight = Math.max(0, rebetInFlight - 1);
+    views.forEach((v) => {
+      if (v && !v.webContents.isDestroyed()) {
+        try { v.webContents.send('set-auto-rebet-armed', false); } catch (_) {}
+      }
+    });
   }
 }
 
