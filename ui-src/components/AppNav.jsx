@@ -10,6 +10,8 @@ export default function AppNav({
   todayTotal = '0.00',
   mirror = true,
   onToggleMirror,
+  autoAcceptOdds = false,
+  onToggleAutoAcceptOdds,
   statusMsg = '',
   updateStatus = { status: 'idle' },
   onInstallUpdate,
@@ -115,6 +117,17 @@ export default function AppNav({
           aria-label={`Toggle click mirroring. Current status: ${mirror ? 'ON' : 'OFF'}`}
         >
           Mirror {mirror ? 'ON' : 'OFF'}
+        </button>
+
+        {/* Auto-Accept Odds Changes Toggle */}
+        <button
+          type="button"
+          onClick={onToggleAutoAcceptOdds}
+          className={`nav-badge nav-badge-clickable ${autoAcceptOdds ? 'nav-badge-auto-accept-on' : 'nav-badge-muted'}`}
+          title={`Auto-Accept Odds Changes is ${autoAcceptOdds ? 'ACTIVE (Updates idle betslip odds automatically without placing bets)' : 'OFF (Manual click required)'}`}
+          aria-label={`Toggle Auto-Accept Odds. Current status: ${autoAcceptOdds ? 'ON' : 'OFF'}`}
+        >
+          Auto-Accept Odds {autoAcceptOdds ? 'ON' : 'OFF'}
         </button>
 
         {/* Daily Bets Volume */}

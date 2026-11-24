@@ -660,17 +660,28 @@ function extractSemantic(target, clickable) {
     return { kind: 'action', action: 'open-bets', hrefPath, label: txt };
   }
 
-  // Handle Place Bet and Accept Changes directly from collapsed OR expanded betslip
+  // Handle Accept Changes separately from Place Bet (never cascade into place-bet)
+  const isAcceptOdds = (
+    el.classList.contains('required-change') ||
+    !!el.closest('.required-change') ||
+    (inBetslip && (
+      low.includes('accept change') || low.includes('accept changes') ||
+      low.includes('save change') || low.includes('save changes') ||
+      low === 'accept'
+    ))
+  );
+  if (isAcceptOdds) {
+    return { kind: 'action', action: 'accept-odds', inBetslip: true, label: txt };
+  }
+
+  // Handle Place Bet directly from collapsed OR expanded betslip
   const isPlaceBet = (
-    el.closest('[data-op="betslip-placebet"], [data-op="fast-betslip-single-bottom-row-right-content"], .place-bet, [class*="place-bet" i], .required-change') ||
+    el.closest('[data-op="betslip-placebet"], [data-op="fast-betslip-single-bottom-row-right-content"], .place-bet, [class*="place-bet" i]') ||
     (inBetslip && (
       low.includes('place bet') || low.includes('placebet') ||
       low.includes('bet now') || low.includes('place a bet') ||
       low === 'bet' ||
-      low.includes('accept change') || low.includes('accept changes') ||
-      low.includes('save change') || low.includes('save changes') ||
-      low.includes('confirm bet') || low.includes('confirm order') ||
-      low === 'accept'
+      low.includes('confirm bet') || low.includes('confirm order')
     ))
   );
   if (isPlaceBet) {
@@ -1254,11 +1265,78 @@ function scheduleInstantRebetCheck() {
   }
 }
 
+// ─── Auto-Accept Odds Changes (Idle State Only) ──────────────────────────────
+let autoAcceptOdds = false;
+let lastAutoAcceptTime = 0;
+let autoAcceptDebounce = null;
 
+ipcRenderer.on('set-auto-accept-odds', (_e, val) => {
+  autoAcceptOdds = !!val;
+  if (autoAcceptOdds && !autoRebetArmed) {
+    scheduleAutoAcceptCheck();
+  }
+});
+
+function findAcceptChangesButton() {
+  const candidates = Array.from(document.querySelectorAll(
+    '.required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], [data-op="fast-betslip-single-bottom-row-right-content"], [data-op="betslip-placebet"], .place-bet, [class*="place-bet" i], .m-fast-betslip button, .m-betslip button, [class*="betslip" i] button, [data-op="betslip-confirm"], .flexibet-confirm, button, [role="button"], .m-btn'
+  )).filter(isElementClickable);
+
+  for (const b of candidates) {
+    const txt = String(b.innerText || b.textContent || '').trim().toLowerCase();
+    if (/deposit|recharge|top[\s-]?up|cancel|close|back|dismiss/i.test(txt)) continue;
+    const isAccept = (
+      b.classList.contains('required-change') ||
+      !!b.closest('.required-change') ||
+      txt.includes('accept change') || txt.includes('accept changes') ||
+      txt.includes('save change') || txt.includes('save changes') ||
+      txt === 'accept' || /^accept\b/i.test(txt)
+    );
+    if (isAccept) return b;
+  }
+  return null;
+}
+
+function scheduleAutoAcceptCheck() {
+  if (!autoAcceptOdds || autoRebetArmed) return;
+  if (autoAcceptDebounce) return;
+  autoAcceptDebounce = setTimeout(() => {
+    autoAcceptDebounce = null;
+    checkAndAcceptOddsChanges();
+  }, 80);
+}
+
+function checkAndAcceptOddsChanges() {
+  if (!autoAcceptOdds || autoRebetArmed) return;
+  if (Date.now() - lastAutoAcceptTime < 600) return;
+
+  const btn = findAcceptChangesButton();
+  if (!btn) return;
+
+  lastAutoAcceptTime = Date.now();
+  console.log('[AutoAcceptOdds] Silently accepted odds change in idle betslip; updating odds only (no bet placement)');
+
+  programmaticSuppressed = true;
+  try {
+    clickElementFast(btn);
+  } finally {
+    setTimeout(() => { programmaticSuppressed = false; }, 120);
+  }
+}
+
+// Periodic check for idle betslip odds changes
+setInterval(() => {
+  if (autoAcceptOdds && !autoRebetArmed) {
+    checkAndAcceptOddsChanges();
+  }
+}, 600);
 
 window.addEventListener('DOMContentLoaded', () => {
   if (!document.body) return;
-  const obs = new MutationObserver(() => scheduleSlipCheck());
+  const obs = new MutationObserver(() => {
+    scheduleSlipCheck();
+    if (autoAcceptOdds && !autoRebetArmed) scheduleAutoAcceptCheck();
+  });
   obs.observe(document.body, { childList: true, subtree: true, characterData: true });
 });
 
@@ -1777,22 +1855,38 @@ document.addEventListener('click', (e) => {
       const btnText = String(slipActionBtn.innerText || slipActionBtn.textContent || '').trim().toLowerCase();
       if (op.includes('betslip-remove-all')) {
         ipcRenderer.send('view:slip-cleared');
-      } else if (
-        op.includes('placebet') ||
-        op.includes('confirm-to-pay') ||
-        slipActionBtn.classList.contains('place-bet') ||
-        /\b(place\s*bet|confirm\s*to\s*pay)\b/i.test(btnText)
-      ) {
-        const stakeEl = document.querySelector(
-          '.m-fast-betslip span.m-keybord-input, .m-keybord-input, [data-op="betslip-keyboard-trigger"], input[name*="stake" i], input[placeholder*="stake" i], input[class*="stake" i], [class*="stake-input" i], [class*="stakeInput" i]'
+      } else {
+        const isAcceptOnly = (
+          slipActionBtn.classList.contains('required-change') ||
+          !!slipActionBtn.closest('.required-change') ||
+          btnText.includes('accept change') || btnText.includes('accept changes') ||
+          btnText.includes('save change') || btnText.includes('save changes') ||
+          btnText === 'accept'
         );
-        if (stakeEl) {
-          const raw = ('value' in stakeEl && stakeEl.value !== undefined) ? stakeEl.value : stakeEl.textContent;
-          if (raw) ipcRenderer.send('view:stake-seen', String(raw).trim());
+        if (isAcceptOnly) {
+          console.log('[Betslip] User clicked Accept Changes: updating odds only (no bet placement)');
+          triggerElementAction(slipActionBtn);
+          // SAFETY: Never wire auto-confirm or cascade into placing a bet when accepting odds!
+          return;
         }
-        console.log('[SAFETY][BetTrigger] Explicit user click on Place Bet button in Pane betslip');
-        triggerElementAction(slipActionBtn);
-        wireBetslipAutoConfirm(slipActionBtn);
+
+        if (
+          op.includes('placebet') ||
+          op.includes('confirm-to-pay') ||
+          slipActionBtn.classList.contains('place-bet') ||
+          /\b(place\s*bet|confirm\s*to\s*pay)\b/i.test(btnText)
+        ) {
+          const stakeEl = document.querySelector(
+            '.m-fast-betslip span.m-keybord-input, .m-keybord-input, [data-op="betslip-keyboard-trigger"], input[name*="stake" i], input[placeholder*="stake" i], input[class*="stake" i], [class*="stake-input" i], [class*="stakeInput" i]'
+          );
+          if (stakeEl) {
+            const raw = ('value' in stakeEl && stakeEl.value !== undefined) ? stakeEl.value : stakeEl.textContent;
+            if (raw) ipcRenderer.send('view:stake-seen', String(raw).trim());
+          }
+          console.log('[SAFETY][BetTrigger] Explicit user click on Place Bet button in Pane betslip');
+          triggerElementAction(slipActionBtn);
+          wireBetslipAutoConfirm(slipActionBtn);
+        }
       }
     }
   }

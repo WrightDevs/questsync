@@ -87,6 +87,7 @@ export default function App() {
 
   const [mirror, setMirror] = useState(true);
   const [typing, setTyping] = useState(() => saved('typing', '1') !== '0');
+  const [autoAcceptOdds, setAutoAcceptOdds] = useState(() => saved('autoAcceptOdds', '0') === '1');
 
   const [targetGH, setTargetGH] = useState(() => saved('targetGH', '200'));
   const [targetNG, setTargetNG] = useState(() => saved('targetNG', '7500'));
@@ -273,6 +274,10 @@ export default function App() {
       if (typeof s.mirror === 'boolean') {
         setMirror(s.mirror);
         localStorage.setItem('ui:mirror', s.mirror ? '1' : '0');
+      }
+      if (typeof s.autoAcceptOdds === 'boolean') {
+        setAutoAcceptOdds(s.autoAcceptOdds);
+        localStorage.setItem('ui:autoAcceptOdds', s.autoAcceptOdds ? '1' : '0');
       }
       if (typeof s.typing === 'boolean') {
         setTyping(s.typing);
@@ -611,6 +616,18 @@ export default function App() {
     }
   };
 
+  const handleToggleAutoAcceptOdds = async () => {
+    const next = !autoAcceptOdds;
+    setAutoAcceptOdds(next);
+    localStorage.setItem('ui:autoAcceptOdds', next ? '1' : '0');
+    if (window.api && window.api.toggleAutoAcceptOdds) {
+      await window.api.toggleAutoAcceptOdds();
+    } else if (window.api && window.api.saveUserSettings) {
+      window.api.saveUserSettings({ autoAcceptOdds: next });
+    }
+    setStatusMsg(next ? 'Auto-Accept Odds: ON (idle slips update odds automatically, no bet placed)' : 'Auto-Accept Odds: OFF');
+  };
+
   const handleToggleTyping = () => {
     const next = !typing;
     setTyping(next);
@@ -915,6 +932,8 @@ export default function App() {
         todayTotal={todayTotal}
         mirror={mirror}
         onToggleMirror={handleToggleMirror}
+        autoAcceptOdds={autoAcceptOdds}
+        onToggleAutoAcceptOdds={handleToggleAutoAcceptOdds}
         statusMsg={statusMsg}
         updateStatus={updateStatus}
         onInstallUpdate={handleInstallUpdate}

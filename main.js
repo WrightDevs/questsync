@@ -120,7 +120,7 @@ let hasSavedProfiles = false;
 let savedWindowCount = 5;
 let savedWindowBounds = null;
 let wholeStakeOption = true;
-const options = { mirror: true, typing: true, windowSync: true, autoAlign: true };
+const options = { mirror: true, typing: true, windowSync: true, autoAlign: true, autoAcceptOdds: false };
 let savedOddsSel = '';
 let savedStakeSel = '';
 let hotkeysEnabled = true;
@@ -193,6 +193,7 @@ function loadUserSettings() {
       if (typeof s.typing === 'boolean') options.typing = s.typing;
       if (typeof s.windowSync === 'boolean') options.windowSync = s.windowSync;
       if (typeof s.autoAlign === 'boolean') options.autoAlign = s.autoAlign;
+      if (typeof s.autoAcceptOdds === 'boolean') options.autoAcceptOdds = s.autoAcceptOdds;
       if (typeof s.whole === 'boolean') wholeStakeOption = s.whole;
       if (typeof s.hotkeysEnabled === 'boolean') hotkeysEnabled = s.hotkeysEnabled;
       if (s.country === 'gh' || s.country === 'ng') currentCountry = s.country;
@@ -284,6 +285,7 @@ function saveUserSettings() {
       typing: options.typing,
       windowSync: options.windowSync !== false,
       autoAlign: options.autoAlign !== false,
+      autoAcceptOdds: options.autoAcceptOdds === true,
       whole: wholeStakeOption,
       hotkeysEnabled,
       profitTargets: { ...profitTargets },
@@ -717,7 +719,10 @@ function createViews(count) {
     });
 
     v.webContents.on('did-finish-load', () => {
-      if (!v.webContents.isDestroyed()) v.webContents.setZoomFactor(zoom);
+      if (!v.webContents.isDestroyed()) {
+        v.webContents.setZoomFactor(zoom);
+        try { v.webContents.send('set-auto-accept-odds', !!options.autoAcceptOdds); } catch (_) {}
+      }
       syncProfileFromView(i);
       sendPaneStates();
       if (currentProfitConfig) scheduleApply(350, true);
@@ -911,6 +916,7 @@ ipcMain.handle('ui:get-user-settings', () => ({
   typing: options.typing,
   windowSync: options.windowSync !== false,
   autoAlign: options.autoAlign !== false,
+  autoAcceptOdds: options.autoAcceptOdds === true,
   whole: wholeStakeOption,
   hotkeysEnabled,
   profitTargets: { ...profitTargets },
@@ -953,6 +959,10 @@ ipcMain.handle('ui:save-user-settings', (_e, patch) => {
     if (typeof patch.typing === 'boolean') options.typing = patch.typing;
     if (typeof patch.windowSync === 'boolean') options.windowSync = patch.windowSync;
     if (typeof patch.autoAlign === 'boolean') options.autoAlign = patch.autoAlign;
+    if (typeof patch.autoAcceptOdds === 'boolean') {
+      options.autoAcceptOdds = patch.autoAcceptOdds;
+      broadcastAutoAcceptOdds();
+    }
     if (typeof patch.whole === 'boolean') wholeStakeOption = patch.whole;
     if (typeof patch.hotkeysEnabled === 'boolean') hotkeysEnabled = patch.hotkeysEnabled;
     if (patch.country === 'ng' || patch.country === 'gh') currentCountry = patch.country;
@@ -1061,12 +1071,37 @@ ipcMain.on('picked', (_e, info) => {
 
 ipcMain.handle('ui:zoom', (_e, action) => setZoom(action));
 
+function broadcastAutoAcceptOdds() {
+  for (const v of views) {
+    if (v && !v.webContents.isDestroyed()) {
+      try { v.webContents.send('set-auto-accept-odds', !!options.autoAcceptOdds); } catch (_) {}
+    }
+  }
+}
+
 ipcMain.handle('ui:set-options', (_e, opts) => {
   if (opts && typeof opts === 'object') {
     Object.assign(options, opts);
     saveUserSettings();
+    if ('autoAcceptOdds' in opts) broadcastAutoAcceptOdds();
   }
   return { ...options };
+});
+
+ipcMain.handle('ui:toggle-auto-accept-odds', () => {
+  options.autoAcceptOdds = !options.autoAcceptOdds;
+  saveUserSettings();
+  broadcastAutoAcceptOdds();
+  return options.autoAcceptOdds;
+});
+
+ipcMain.handle('ui:get-auto-accept-odds', () => options.autoAcceptOdds);
+
+ipcMain.handle('ui:set-auto-accept-odds', (_e, val) => {
+  options.autoAcceptOdds = !!val;
+  saveUserSettings();
+  broadcastAutoAcceptOdds();
+  return options.autoAcceptOdds;
 });
 
 ipcMain.handle('ui:set-whole-stake', (_e, whole) => {
@@ -2240,6 +2275,11 @@ ipcMain.on('mirror-event', (e, payload) => {
   );
   if (isPlaceOrConfirm) {
     console.log('[SAFETY] Suppressed mirrored bet-placement/confirm action from sender pane');
+    return;
+  }
+
+  // Auto-Accept Odds: Suppress mirrored odds acceptance so each pane handles odds changes independently
+  if (payload.semantic?.action === 'accept-odds' || payload.semantic?.action === 'accept-change') {
     return;
   }
 

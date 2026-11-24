@@ -221,6 +221,12 @@ body {
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
+.nav-badge-auto-accept-on {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
 .nav-badge-muted {
   background: transparent;
   color: var(--text-muted);
