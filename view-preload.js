@@ -2,7 +2,7 @@ const { ipcRenderer, webFrame } = require('electron');
 
 let pickKind = null; // 'odds' | 'stake' while the element picker is active
 let hoverBox = null;
-let replaying = false; // true while executing a mirror-replay → suppresses re-capture
+let replayingCount = 0; // > 0 while executing a mirror-replay → suppresses re-capture
 let programmaticSuppressed = false; // true only while automated keypad typing runs on this pane
 let suppressReleaseTimer = null;
 
@@ -844,7 +844,18 @@ function findOutcomeTarget(sem) {
   }
 
   // 3. Buttons inside the market scope
-  const btns = getOutcomeButtonsInContainer(marketScope);
+  let btns = getOutcomeButtonsInContainer(marketScope);
+  if (!btns.length && marketScope !== card) {
+    // Market container found but 0 buttons visible -> accordion is collapsed!
+    // Find header/toggle button and trigger expansion
+    const toggle = marketScope.querySelector(
+      '[data-op*="market-title" i], [data-op*="market-header" i], [class*="market-title" i], [class*="market-header" i], [class*="market-toggle" i], .m-market-header, .m-market-title, [class*="accordion" i], h3, h4, h5'
+    ) || marketScope;
+    if (toggle && typeof toggle.click === 'function') {
+      try { toggle.click(); } catch (_) {}
+    }
+    btns = getOutcomeButtonsInContainer(marketScope);
+  }
   if (!btns.length) {
     console.warn(`[MirrorReplay] Outcome skipped: no outcome buttons in market "${sem.market}" on target pane`);
     return null;
@@ -1135,10 +1146,10 @@ function notifyMatchIfChanged() {
 }
 
 function scheduleSlipCheck() {
-  if (replaying || programmaticSuppressed) return;
+  if (replayingCount > 0 || programmaticSuppressed) return;
   clearTimeout(slipObsTimer);
   slipObsTimer = setTimeout(() => {
-    if (replaying || programmaticSuppressed) return;
+    if (replayingCount > 0 || programmaticSuppressed) return;
     notifyMatchIfChanged();
     const sig = readSlipSignature();
     if (sig && sig !== lastSlipSig) {
@@ -1258,7 +1269,7 @@ let lastReportedStake = null;
 let stakeSyncDebounce = null;
 
 function notifyStakeIfChanged() {
-  if (replaying || programmaticSuppressed) return;
+  if (replayingCount > 0 || programmaticSuppressed) return;
   clearTimeout(stakeSyncDebounce);
   stakeSyncDebounce = setTimeout(() => {
     const stakeEl = document.querySelector(
@@ -1280,7 +1291,7 @@ function notifyStakeIfChanged() {
 // Observe custom mobile keypad mutations (SportyBet span.m-keybord-input)
 try {
   const stakeObs = new MutationObserver((muts) => {
-    if (replaying || programmaticSuppressed) return;
+    if (replayingCount > 0 || programmaticSuppressed) return;
     for (const m of muts) {
       const target = m.target;
       const el = target.nodeType === 1 ? target : target.parentElement;
@@ -1298,7 +1309,7 @@ try {
 } catch (_) {}
 
 function markUser(e) {
-  if (e.isTrusted && !replaying && !programmaticSuppressed) {
+  if (e.isTrusted && replayingCount === 0 && !programmaticSuppressed) {
     lastUserAction = Date.now();
     ipcRenderer.send('view:focus');
   }
@@ -1751,7 +1762,7 @@ document.addEventListener('click', (e) => {
   // If in pick mode, let the pick listener handle it exclusively
   if (pickKind) return;
   // Ignore non-trusted, replaying, or programmatic keypad clicks
-  if (!e.isTrusted || replaying || programmaticSuppressed) return;
+  if (!e.isTrusted || replayingCount > 0 || programmaticSuppressed) return;
 
   const target = e.target;
   const inSlip = !!target.closest(
@@ -1839,7 +1850,7 @@ document.addEventListener('scroll', (e) => {
 }, true);
 
 document.addEventListener('input', (e) => {
-  if (!e.isTrusted || replaying || programmaticSuppressed) return;
+  if (!e.isTrusted || replayingCount > 0 || programmaticSuppressed) return;
   const el = e.target;
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
   if (el.type === 'password' || el.name === 'c2c-converter-input') return;
@@ -1933,12 +1944,24 @@ function findTarget(m) {
   return el;
 }
 
-ipcRenderer.on('mirror-replay', (_e, m) => {
-  replaying = true;
+async function findTargetWithRetry(m, maxMs = 300) {
+  let el = findTarget(m);
+  if (el) return el;
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    await new Promise(r => setTimeout(r, 20));
+    el = findTarget(m);
+    if (el) return el;
+  }
+  return null;
+}
+
+ipcRenderer.on('mirror-replay', async (_e, m) => {
+  replayingCount++;
   try {
     const crossSite = !!(m.srcSite && m.srcSite !== currentSite());
     if (m.type === 'click') {
-      const el = findTarget(m);
+      const el = await findTargetWithRetry(m, 300);
 
       if (el) {
         const clickable = el.closest ? el.closest(CLICKABLE_REPLAY_SEL) : null;
@@ -2046,7 +2069,9 @@ ipcRenderer.on('mirror-replay', (_e, m) => {
     }
   } catch (_) { /* missing element in one pane should not break the rest */ }
   finally {
-    setTimeout(() => { replaying = false; }, 30);
+    setTimeout(() => {
+      replayingCount = Math.max(0, replayingCount - 1);
+    }, 120);
   }
 });
 
