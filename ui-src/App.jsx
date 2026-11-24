@@ -506,8 +506,11 @@ export default function App() {
         }
       } else if ((e.key === 'Enter' || e.code === 'NumpadEnter') && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
         if (!isControl) {
-          e.preventDefault();
-          handlePlaceBet('Hotkey: Enter (UI)');
+          event?.preventDefault ? event.preventDefault() : e.preventDefault();
+          if (!autoRebetOnSpace) {
+            // Single Bet mode: Enter triggers manual Rebet (repeating last placed bet)
+            handleRebet();
+          }
         }
       } else if ((e.altKey && e.key.toLowerCase() === 'c') || e.key === 'F9') {
         e.preventDefault();

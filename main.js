@@ -677,10 +677,12 @@ function createViews(count) {
 
       if (suppressFocusRelay || !hotkeysEnabled) return;
 
-      if (input.key === 'Escape' && autoRebetRunning) {
-        event.preventDefault();
-        stopAutoRebet();
-        return;
+      if (input.key === 'Escape') {
+        if (autoRebetRunning) {
+          event.preventDefault();
+          stopAutoRebet();
+          return;
+        }
       }
 
       if (input.code === 'Space' && !input.alt && !input.meta && !input.shift) {
@@ -701,7 +703,12 @@ function createViews(count) {
       } else if ((input.key === 'Enter' || input.code === 'NumpadEnter') && !input.alt && !input.meta && !input.shift) {
         if (!viewEditableFocus.get(v.webContents.id)) {
           event.preventDefault();
-          if (!input.isAutoRepeat) startAutoRebet(1, `Hotkey: Enter (Pane ${i + 1})`);
+          if (!input.isAutoRepeat) {
+            if (!autoRebetOnSpace) {
+              // Single Bet mode: Enter triggers manual Rebet (repeating last placed bet)
+              triggerRebet(`Hotkey: Enter (Pane ${i + 1} - Single Bet Manual Rebet)`);
+            }
+          }
         }
       } else if ((input.alt && k === 'c') || input.key === 'F9') {
         event.preventDefault();
