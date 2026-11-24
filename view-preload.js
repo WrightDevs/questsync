@@ -1265,17 +1265,65 @@ function scheduleInstantRebetCheck() {
   }
 }
 
-// ─── Auto-Accept Odds Changes (Idle State Only) ──────────────────────────────
+// ─── Auto-Accept Odds Changes (Idle State & Native Prompt) ───────────────────
 let autoAcceptOdds = false;
 let lastAutoAcceptTime = 0;
+let lastNativePromptDismissTime = 0;
 let autoAcceptDebounce = null;
 
 ipcRenderer.on('set-auto-accept-odds', (_e, val) => {
   autoAcceptOdds = !!val;
-  if (autoAcceptOdds && !autoRebetArmed) {
+  if (autoAcceptOdds) {
     scheduleAutoAcceptCheck();
   }
 });
+
+function findNativeAutoAcceptPromptYesButton() {
+  const dialogs = Array.from(document.querySelectorAll(
+    '.es-dialog, .m-dialog, .af-dialog, .m-pop-box, .m-pop, .m-modal, [role="dialog"], [class*="dialog" i], [class*="modal" i], [class*="popup" i], div'
+  )).filter(isElementClickable);
+
+  for (const dialog of dialogs) {
+    const text = String(dialog.innerText || dialog.textContent || '').trim().toLowerCase();
+    if (!text || text.length > 600) continue;
+    const hasPromptText = (
+      text.includes('auto-accept odds change') ||
+      (text.includes('odds change next time') && text.includes('bet settings'))
+    );
+    if (!hasPromptText) continue;
+
+    const candidates = Array.from(dialog.querySelectorAll(
+      'button, [role="button"], .m-btn, .af-button, .es-button, a, span, div'
+    )).filter(isElementClickable);
+
+    const yesBtn = candidates.find(c => {
+      if (c.querySelectorAll('button, [role="button"], .m-btn, a').length > 0) return false;
+      const t = String(c.innerText || c.textContent || '').trim().toLowerCase();
+      return t === 'yes' || /^\s*yes\s*$/i.test(t);
+    });
+
+    if (yesBtn) return yesBtn;
+  }
+  return null;
+}
+
+function checkAndDismissNativeAutoAcceptPrompt() {
+  if (!autoAcceptOdds) return;
+  if (Date.now() - lastNativePromptDismissTime < 1000) return;
+
+  const yesBtn = findNativeAutoAcceptPromptYesButton();
+  if (!yesBtn) return;
+
+  lastNativePromptDismissTime = Date.now();
+  console.log('[AutoAcceptOdds] Dismissed native "Auto-accept odds change next time?" prompt (clicked Yes)');
+
+  programmaticSuppressed = true;
+  try {
+    clickElementFast(yesBtn);
+  } finally {
+    setTimeout(() => { programmaticSuppressed = false; }, 120);
+  }
+}
 
 function findAcceptChangesButton() {
   const candidates = Array.from(document.querySelectorAll(
@@ -1298,11 +1346,14 @@ function findAcceptChangesButton() {
 }
 
 function scheduleAutoAcceptCheck() {
-  if (!autoAcceptOdds || autoRebetArmed) return;
+  if (!autoAcceptOdds) return;
   if (autoAcceptDebounce) return;
   autoAcceptDebounce = setTimeout(() => {
     autoAcceptDebounce = null;
-    checkAndAcceptOddsChanges();
+    checkAndDismissNativeAutoAcceptPrompt();
+    if (!autoRebetArmed) {
+      checkAndAcceptOddsChanges();
+    }
   }, 80);
 }
 
@@ -1324,10 +1375,13 @@ function checkAndAcceptOddsChanges() {
   }
 }
 
-// Periodic check for idle betslip odds changes
+// Periodic check for idle betslip odds changes & native prompt
 setInterval(() => {
-  if (autoAcceptOdds && !autoRebetArmed) {
-    checkAndAcceptOddsChanges();
+  if (autoAcceptOdds) {
+    checkAndDismissNativeAutoAcceptPrompt();
+    if (!autoRebetArmed) {
+      checkAndAcceptOddsChanges();
+    }
   }
 }, 600);
 
@@ -1335,7 +1389,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (!document.body) return;
   const obs = new MutationObserver(() => {
     scheduleSlipCheck();
-    if (autoAcceptOdds && !autoRebetArmed) scheduleAutoAcceptCheck();
+    if (autoAcceptOdds) scheduleAutoAcceptCheck();
   });
   obs.observe(document.body, { childList: true, subtree: true, characterData: true });
 });
