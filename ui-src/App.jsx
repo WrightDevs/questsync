@@ -492,22 +492,22 @@ export default function App() {
       }
       if (!hotkeysEnabled || e.repeat) return;
       const tag = document.activeElement?.tagName;
-      const isControl = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag);
+      const isControl = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(tag) || (document.activeElement && document.activeElement !== document.body && document.activeElement !== document.documentElement);
       if (e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
         if (!isControl) {
           e.preventDefault();
           if (autoRebetState.running) {
             handleStopAutoRebet();
           } else if (autoRebetOnSpace) {
-            handleStartAutoRebet();
+            handleStartAutoRebet('Hotkey: Spacebar (UI - Rapid Attack)');
           } else {
-            handlePlaceBet();
+            handlePlaceBet('Hotkey: Spacebar (UI - Single Bet)');
           }
         }
       } else if ((e.key === 'Enter' || e.code === 'NumpadEnter') && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
         if (!isControl) {
           e.preventDefault();
-          handlePlaceBet();
+          handlePlaceBet('Hotkey: Enter (UI)');
         }
       } else if ((e.altKey && e.key.toLowerCase() === 'c') || e.key === 'F9') {
         e.preventDefault();
@@ -666,18 +666,18 @@ export default function App() {
     }
   };
 
-  const handleStartAutoRebet = async () => {
+  const handleStartAutoRebet = async (src = 'UI Header: Rapid Attack Button') => {
     const cyc = autoRebetCycles === 'inf' ? 'inf' : (parseInt(autoRebetCycles, 10) || 1);
     setStatusMsg(`Rapid Attack running (${cyc} cycle${cyc === 1 ? '' : 's'})...`);
     if (window.api.startAutoRebet) {
-      await window.api.startAutoRebet(cyc);
+      await window.api.startAutoRebet(cyc, src);
     }
   };
 
-  const handlePlaceBet = async () => {
+  const handlePlaceBet = async (src = 'UI Header: Place Bet Button') => {
     setStatusMsg('Placing single bet (1 pass) across all panes...');
     if (window.api && window.api.startAutoRebet) {
-      await window.api.startAutoRebet(1);
+      await window.api.startAutoRebet(1, src);
     } else if (window.api && window.api.placeBet) {
       await window.api.placeBet();
       setStatusMsg('Single bet placed across panes');

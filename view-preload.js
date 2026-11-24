@@ -146,6 +146,16 @@ function checkEditableFocus() {
     } else if (tag === 'INPUT') {
       const t = (el.type || 'text').toLowerCase();
       editable = !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image'].includes(t);
+    } else if (
+      el.closest('.m-keybord-input, [data-op="betslip-keyboard-trigger"], .stake-keyboard, .m-keyboard, [class*="stake" i], [class*="keyboard" i]')
+    ) {
+      editable = true;
+    }
+  }
+  if (!editable) {
+    const activeKeypad = document.querySelector('.stake-keyboard, .m-keyboard, .m-input-keyboard-wrapper');
+    if (activeKeypad && isElementVisible(activeKeypad)) {
+      editable = true;
     }
   }
   if (editable !== lastEditableFocus) {
@@ -1676,10 +1686,6 @@ function findConfirmCandidateInView() {
 let activeConfirmPoll = null;
 let activeConfirmObs = null;
 function wireBetslipAutoConfirm(triggerEl) {
-  const isAccept = /accept\s*changes?|save\s*changes?|^accept$/i.test(
-    String(triggerEl?.innerText || triggerEl?.textContent || '').trim()
-  );
-
   clearInterval(activeConfirmPoll);
   if (activeConfirmObs) {
     try { activeConfirmObs.disconnect(); } catch (_) {}
@@ -1693,6 +1699,7 @@ function wireBetslipAutoConfirm(triggerEl) {
       try { activeConfirmObs.disconnect(); } catch (_) {}
       activeConfirmObs = null;
     }
+    console.log('[SAFETY][BetTrigger] Auto-confirming open bet confirmation dialog in Pane');
     triggerElementAction(btn);
   };
 
@@ -1733,19 +1740,6 @@ function wireBetslipAutoConfirm(triggerEl) {
       return;
     }
 
-    // If it was "Accept Changes", look for the button to transition to "Place Bet" and click it
-    if (isAccept) {
-      const placeEl = Array.from(document.querySelectorAll(
-        '.place-bet, [class*="place-bet" i], [data-op="single-placebet"], [data-op="single-placebet-text"], [data-op="betslip-placebet"]'
-      )).find(isElementVisible);
-      if (placeEl) {
-        const t = String(placeEl.innerText || placeEl.textContent || '').trim().toLowerCase();
-        if (t.includes('place bet') || t.includes('placebet') || t.includes('bet now') || t === 'bet') {
-          triggerElementAction(placeEl);
-        }
-      }
-    }
-
     const confirmBtn = findConfirmCandidateInView();
     if (confirmBtn) {
       doConfirm(confirmBtn);
@@ -1760,29 +1754,35 @@ document.addEventListener('click', (e) => {
   if (!e.isTrusted || replaying || programmaticSuppressed) return;
 
   const target = e.target;
-  const slipActionBtn = target.closest(
-    '[data-op="betslip-remove-all"], [data-op="betslip-placebet"], [data-op="betslip-confirm-to-pay-btn"], [data-op*="placebet" i], [data-op*="confirm" i], .place-bet, [class*="place-bet" i], .required-change, button, [role="button"]'
+  const inSlip = !!target.closest(
+    '.m-fast-betslip, [data-op="fast-betslip-container"], .m-betslip, .m-bet-slip, [class*="betslip" i], [class*="bet-slip" i]'
   );
-  if (slipActionBtn) {
-    const op = String(slipActionBtn.getAttribute('data-op') || '').toLowerCase();
-    const btnText = String(slipActionBtn.innerText || slipActionBtn.textContent || '').trim().toLowerCase();
-    if (op.includes('betslip-remove-all')) {
-      ipcRenderer.send('view:slip-cleared');
-    } else if (
-      op.includes('placebet') ||
-      op.includes('confirm-to-pay') ||
-      slipActionBtn.classList.contains('place-bet') ||
-      /\b(place\s*bet|confirm|pay\s*now|accept\s*changes?|save\s*changes?)\b/i.test(btnText)
-    ) {
-      const stakeEl = document.querySelector(
-        '.m-fast-betslip span.m-keybord-input, .m-keybord-input, [data-op="betslip-keyboard-trigger"], input[name*="stake" i], input[placeholder*="stake" i], input[class*="stake" i], [class*="stake-input" i], [class*="stakeInput" i]'
-      );
-      if (stakeEl) {
-        const raw = ('value' in stakeEl && stakeEl.value !== undefined) ? stakeEl.value : stakeEl.textContent;
-        if (raw) ipcRenderer.send('view:stake-seen', String(raw).trim());
+  if (inSlip) {
+    const slipActionBtn = target.closest(
+      '[data-op="betslip-remove-all"], [data-op="betslip-placebet"], [data-op="betslip-confirm-to-pay-btn"], [data-op="single-placebet"], [data-op="single-placebet-text"], .place-bet, [class*="place-bet" i]'
+    );
+    if (slipActionBtn) {
+      const op = String(slipActionBtn.getAttribute('data-op') || '').toLowerCase();
+      const btnText = String(slipActionBtn.innerText || slipActionBtn.textContent || '').trim().toLowerCase();
+      if (op.includes('betslip-remove-all')) {
+        ipcRenderer.send('view:slip-cleared');
+      } else if (
+        op.includes('placebet') ||
+        op.includes('confirm-to-pay') ||
+        slipActionBtn.classList.contains('place-bet') ||
+        /\b(place\s*bet|confirm\s*to\s*pay)\b/i.test(btnText)
+      ) {
+        const stakeEl = document.querySelector(
+          '.m-fast-betslip span.m-keybord-input, .m-keybord-input, [data-op="betslip-keyboard-trigger"], input[name*="stake" i], input[placeholder*="stake" i], input[class*="stake" i], [class*="stake-input" i], [class*="stakeInput" i]'
+        );
+        if (stakeEl) {
+          const raw = ('value' in stakeEl && stakeEl.value !== undefined) ? stakeEl.value : stakeEl.textContent;
+          if (raw) ipcRenderer.send('view:stake-seen', String(raw).trim());
+        }
+        console.log('[SAFETY][BetTrigger] Explicit user click on Place Bet button in Pane betslip');
+        triggerElementAction(slipActionBtn);
+        wireBetslipAutoConfirm(slipActionBtn);
       }
-      triggerElementAction(slipActionBtn);
-      wireBetslipAutoConfirm(slipActionBtn);
     }
   }
 
@@ -2012,8 +2012,9 @@ ipcRenderer.on('mirror-replay', (_e, m) => {
         }
 
         if (m.semantic?.action === 'place-bet') {
-          triggerElementAction(targetToClick);
-          wireBetslipAutoConfirm(targetToClick);
+          // SAFETY: Never place bets or auto-confirm via mirror replay!
+          console.warn('[SAFETY] Suppressed mirror-replay attempt to trigger place-bet action on follower pane');
+          return;
         } else if (m.semantic?.action === 'open-betslip') {
           triggerElementAction(targetToClick);
         }

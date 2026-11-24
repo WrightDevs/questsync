@@ -691,17 +691,17 @@ function createViews(count) {
               stopAutoRebet();
             } else if (autoRebetOnSpace) {
               const runCyc = autoRebetCycles === 'inf' ? 'inf' : Math.max(1, parseInt(autoRebetCycles, 10) || 1);
-              startAutoRebet(runCyc);
+              startAutoRebet(runCyc, `Hotkey: Spacebar (Pane ${i + 1} - Rapid Attack)`);
             } else {
               // Single Bet mode: exactly ONE pass (Place Bet -> Confirm -> Stop)
-              startAutoRebet(1);
+              startAutoRebet(1, `Hotkey: Spacebar (Pane ${i + 1} - Single Bet)`);
             }
           }
         }
       } else if ((input.key === 'Enter' || input.code === 'NumpadEnter') && !input.alt && !input.meta && !input.shift) {
         if (!viewEditableFocus.get(v.webContents.id)) {
           event.preventDefault();
-          if (!input.isAutoRepeat) startAutoRebet(1);
+          if (!input.isAutoRepeat) startAutoRebet(1, `Hotkey: Enter (Pane ${i + 1})`);
         }
       } else if ((input.alt && k === 'c') || input.key === 'F9') {
         event.preventDefault();
@@ -2226,11 +2226,21 @@ ipcMain.on('mirror-event', (e, payload) => {
   // Form inputs (phone/password/search) → don't mirror so other panes don't steal focus
   if (payload.type === 'click' && payload.isFormInput && !payload.isStakeField) return;
 
+  // SAFETY: Never mirror bet placement or confirmation across panes!
+  // Bet placement is strictly managed across all panes by main process hotkey/UI triggers.
+  const isPlaceOrConfirm = /place[-]?bet|confirm-to-pay|betslip-placebet|betslip-confirm|single-placebet/i.test(
+    `${payload.clickableSelector || ''} ${payload.selector || ''} ${payload.smartSelector || ''} ${payload.semantic?.action || ''}`
+  );
+  if (isPlaceOrConfirm) {
+    console.log('[SAFETY] Suppressed mirrored bet-placement/confirm action from sender pane');
+    return;
+  }
+
   // Only suppress clicks on actual individual numeric keypad keys (0-9, clear, done, del)
   const isKeypadKey = (
     /appendkey|clearall|removelast|done-bottom|m-keyboard-key/i.test(payload.clickableSelector || '') ||
     /appendkey|clearall|removelast|done-bottom|m-keyboard-key/i.test(payload.selector || '')
-  ) && !/placebet|confirm|remove-all|outcome/i.test(`${payload.clickableSelector || ''} ${payload.selector || ''} ${payload.semantic || ''}`);
+  ) && !/remove-all|outcome/i.test(`${payload.clickableSelector || ''} ${payload.selector || ''} ${payload.semantic || ''}`);
   if (isKeypadKey) return;
 
   const senderIdx = views.findIndex((v) => v.webContents.id === e.sender.id);
@@ -2686,6 +2696,7 @@ ipcMain.handle('ui:zoom-betano', (_e, actionOrValue) => adjustMonitorZoom(action
 // ─── IPC: Place bet in all armed views & prepare background rebet stakes ────
 
 async function triggerPlaceBet(sourceLabel = 'UI') {
+  console.log(`[SAFETY][BetTrigger] triggerPlaceBet invoked | Source: "${sourceLabel}" | Timestamp: ${new Date().toISOString()}`);
   // Read current stakes from all views and prepare decremented rebet stakes in background immediately
   let detectedStake = null;
 
@@ -2785,7 +2796,7 @@ async function triggerPlaceBet(sourceLabel = 'UI') {
   return { placed, confirmed, insufficientCount, onDepositCount, oddsLocked: oddsLockedCount > 0, total: views.length, results };
 }
 
-ipcMain.handle('ui:place-bet', () => startAutoRebet(1));
+ipcMain.handle('ui:place-bet', () => startAutoRebet(1, 'UI Header Button: Place Bet'));
 
 async function rebetPane(v, i, preparedStake, minStakeNum) {
   const prof = getPaneProfile(i);
@@ -3056,6 +3067,11 @@ async function runPaneAttackLoop(v, i, targetCycles) {
       // Zero delay transition - immediate next cycle fires!
     } else {
       console.warn(`[AutoRebet] Pane ${i + 1}: Cycle did not complete:`, res?.error);
+      // Single Bet mode: exactly ONE pass, never loop or retry regardless of outcome
+      if (targetCycles === 1) {
+        console.warn(`[AutoRebet] Pane ${i + 1}: Single bet attempt finished (status: ${res?.error || 'unconfirmed'}). Stopping.`);
+        break;
+      }
       await sleep(80);
       if (!res || res.error === 'timeout_waiting_for_place_btn') {
         if (!viewReady(v)) break;
@@ -3066,7 +3082,8 @@ async function runPaneAttackLoop(v, i, targetCycles) {
   try { v.webContents.send('set-auto-rebet-armed', false); } catch (_) { }
 }
 
-async function startAutoRebet(cycles) {
+async function startAutoRebet(cycles, sourceLabel = 'Unknown') {
+  console.log(`[SAFETY][BetTrigger] startAutoRebet invoked | Source: "${sourceLabel}" | Cycles: ${cycles} | Timestamp: ${new Date().toISOString()}`);
   if (autoRebetRunning) return { ok: false, msg: 'Already running' };
   autoRebetRunning = true;
   autoRebetCycle = 0;
@@ -3107,7 +3124,7 @@ function stopAutoRebet() {
   return { ok: true, running: false };
 }
 
-ipcMain.handle('ui:start-auto-rebet', (_e, cycles) => startAutoRebet(cycles));
+ipcMain.handle('ui:start-auto-rebet', (_e, cycles, sourceLabel) => startAutoRebet(cycles, sourceLabel || 'UI Request'));
 ipcMain.handle('ui:stop-auto-rebet', () => stopAutoRebet());
 ipcMain.handle('ui:get-auto-rebet-state', () => ({
   running: autoRebetRunning,

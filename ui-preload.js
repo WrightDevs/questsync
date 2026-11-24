@@ -57,7 +57,7 @@ contextBridge.exposeInMainWorld('api', {
   loginAll:          (accounts) => ipcRenderer.invoke('ui:login-all', accounts),
   setRebetDecrement: (cfg)      => ipcRenderer.invoke('ui:set-rebet-decrement', cfg),
   getRebetDecrement: ()         => ipcRenderer.invoke('ui:get-rebet-decrement'),
-  startAutoRebet:       (cycles)   => ipcRenderer.invoke('ui:start-auto-rebet', cycles),
+  startAutoRebet:       (cycles, src) => ipcRenderer.invoke('ui:start-auto-rebet', cycles, src),
   stopAutoRebet:        ()         => ipcRenderer.invoke('ui:stop-auto-rebet'),
   getAutoRebetState:    ()         => ipcRenderer.invoke('ui:get-auto-rebet-state'),
   setAutoRebetOnSpace:  (enabled)  => ipcRenderer.invoke('ui:set-auto-rebet-on-space', enabled),
