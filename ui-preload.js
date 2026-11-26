@@ -81,7 +81,6 @@ contextBridge.exposeInMainWorld('api', {
   onStakeSynced:      (cb) => on('stake-synced', cb),
   onAutoCashoutState: (cb) => on('auto-cashout-state', cb),
   onAutoRebetState:   (cb) => on('auto-rebet-state', cb),
-  onActiveMatch:      (cb) => on('ui:active-match', cb),
   onLayoutGeometry:   (cb) => on('ui:layout-geometry', cb),
   onUpdateStatus:     (cb) => on('update-status', cb),
 });

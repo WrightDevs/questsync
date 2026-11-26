@@ -6,7 +6,6 @@ const CURRENCY = { gh: 'GH₵', ng: '₦' };
 export default function PaneStrip({
   paneStates = [],
   profitRows = [],
-  activeMatch = '',
   layoutGeometry = null,
   monitorConfig = {},
   betanoOpen = false,

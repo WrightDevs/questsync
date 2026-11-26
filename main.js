@@ -2158,23 +2158,6 @@ ipcMain.on('view:stake-sync', (e, payload) => {
   }
 });
 
-let currentActiveMatch = '';
-
-ipcMain.on('view:match-changed', (e, payload) => {
-  const match = payload && payload.match ? String(payload.match).trim() : '';
-  if (!match) return;
-  const idx = views.findIndex((v) => v && !v.webContents.isDestroyed() && v.webContents.id === e.sender.id);
-  if (idx >= 0) {
-    if (!paneProfiles[idx]) paneProfiles[idx] = {};
-    paneProfiles[idx].match = match;
-  }
-  currentActiveMatch = match;
-  sendPaneStates();
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('ui:active-match', match);
-  }
-});
-
 ipcMain.on('view:slip-cleared', (e) => {
   lastStakeByView.delete(e.sender.id);
   preparedRebetStakes.delete(e.sender.id);

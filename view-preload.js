@@ -1117,51 +1117,11 @@ function readSlipSignature() {
   return parts.length ? (location.href + '|' + parts.join('|')) : '';
 }
 
-function extractActiveMatchTitle() {
-  try {
-    // 1. Check betslip items first (the game selected in betslip)
-    const slipItems = Array.from(document.querySelectorAll(
-      '.m-bet-item, .m-item, .slip-item, [class*="bet-item" i], [data-op="betslip-selection"], [class*="selection-item" i]'
-    )).filter(isElementVisible);
-    for (const item of slipItems) {
-      const titleEl = item.querySelector('.m-team-name, .m-title, [class*="team" i], [class*="match" i], [class*="event" i], h4, h5, .name');
-      if (titleEl) {
-        const t = String(titleEl.textContent || '').replace(/\s+/g, ' ').trim();
-        if (t.length >= 3 && !/^\d+$/.test(t)) return t;
-      }
-      const lines = String(item.innerText || item.textContent || '')
-        .split('\n')
-        .map(s => s.trim())
-        .filter(s => s.length >= 3 && s.length <= 60 && !/^\d+([.,:]\d+)?$/.test(s) && !/^(1|X|2|1X|X2|12|Over|Under|Stake|Odds|Pot|Total|Rebet|Place|Bet)/i.test(s));
-      if (lines.length > 0) return lines[0];
-    }
-
-    // 2. Check scoreboard / match header on event detail page
-    const teams = extractTeamsFromPageHeader();
-    if (teams && teams.length >= 2) return `${teams[0]} vs ${teams[1]}`;
-
-    // 3. Check document title (e.g. "Arsenal vs Chelsea - SportyBet")
-    const titleMatch = String(document.title || '').match(/^(.+?)\s+vs\.?\s+(.+?)(?:\s*[-|]|$)/i);
-    if (titleMatch) return `${titleMatch[1].trim()} vs ${titleMatch[2].trim()}`;
-  } catch (_) {}
-  return '';
-}
-
-let lastReportedMatch = '';
-function notifyMatchIfChanged() {
-  const m = extractActiveMatchTitle();
-  if (m && m !== lastReportedMatch) {
-    lastReportedMatch = m;
-    ipcRenderer.send('view:match-changed', { match: m });
-  }
-}
-
 function scheduleSlipCheck() {
   if (replayingCount > 0 || programmaticSuppressed) return;
   clearTimeout(slipObsTimer);
   slipObsTimer = setTimeout(() => {
     if (replayingCount > 0 || programmaticSuppressed) return;
-    notifyMatchIfChanged();
     const sig = readSlipSignature();
     if (sig && sig !== lastSlipSig) {
       lastSlipSig = sig;

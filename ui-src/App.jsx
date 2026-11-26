@@ -131,7 +131,6 @@ export default function App() {
   const [tileSize, setTileSize] = useState(() => parseInt(saved('tileSize', '65'), 10) || 65);
   const [todayBets, setTodayBets] = useState(() => parseInt(saved('todayBets', '0'), 10) || 0);
   const [todayTotal, setTodayTotal] = useState(() => saved('todayTotal', '0.00'));
-  const [activeMatch, setActiveMatch] = useState('');
   const [logs, setLogs] = useState(() => [
     { id: 1, time: new Date().toLocaleTimeString(), text: 'QuestSync initialized' },
     { id: 2, time: new Date().toLocaleTimeString(), text: 'Click mirroring & instant stake sync online' },
@@ -422,9 +421,6 @@ export default function App() {
               return next;
             });
           }
-          if (/Loaded\s+"([^"]+)"/i.test(d.msg)) {
-            setActiveMatch(RegExp.$1);
-          }
         }
       }),
       window.api.onBetanoState && window.api.onBetanoState((open) => setBetanoOpen(!!open)),
@@ -455,9 +451,6 @@ export default function App() {
           return prev.map((r) => ({ ...r, stake: stk, ok: true }));
         });
         setStatusMsg(`Stake synced across panes: ${stk}`);
-      }),
-      window.api.onActiveMatch && window.api.onActiveMatch((m) => {
-        if (m) setActiveMatch(m);
       }),
       window.api.onAutoCashoutState && window.api.onAutoCashoutState((on) => setAutoCashout(!!on)),
       window.api.onAutoRebetState && window.api.onAutoRebetState((state) => {
@@ -1003,7 +996,6 @@ export default function App() {
           <PaneStrip
             paneStates={paneStates}
             profitRows={profitRows}
-            activeMatch={activeMatch}
             layoutGeometry={layoutGeometry}
             monitorConfig={betanoConfig}
             betanoOpen={betanoOpen}
