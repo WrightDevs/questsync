@@ -15,11 +15,8 @@ const {
   FIND_STAKE_INPUT_JS,
   KEYBOARD_CONTAINER_SELECTOR,
   MONITOR_URLS,
-  CHECK_BETPAWA_UNAVAILABLE_JS,
   oddsReadCode,
   readFieldCode,
-  PLACE_BET_JS,
-  CLICK_ANY_CONFIRM_JS,
   FAST_REBET_CYCLE_JS,
   EXECUTE_ATTACK_CYCLE_JS,
   INSPECT_SINGLE_BET_STATE_JS,
@@ -99,9 +96,6 @@ const monitorConfig = {
 
 const MONITOR_MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
-
-let degenArmed = false;
-let degenInterval = null;
 
 let views = [];
 let activePaneIndex = 0;
@@ -219,9 +213,6 @@ function loadUserSettings() {
       if (s.cashoutConfig && typeof s.cashoutConfig === 'object') {
         Object.assign(cashoutConfig, s.cashoutConfig);
       }
-      if (typeof s.degenEnabled === 'boolean') {
-        degenArmed = s.degenEnabled;
-      }
       if (typeof s.balanceAwareStake === 'boolean') {
         balanceAwareStake = s.balanceAwareStake;
       }
@@ -290,7 +281,6 @@ function saveUserSettings() {
       rebetConfig: { ...rebetConfig },
       monitorConfig: { ...monitorConfig },
       cashoutConfig: { ...cashoutConfig },
-      degenEnabled: degenArmed,
       balanceAwareStake,
       autoRebetOnSpace,
       autoRebetCycles,
@@ -807,7 +797,6 @@ function createWindow() {
       clearInterval(autoCashoutTimer);
       autoCashoutTimer = null;
     }
-    stopDegenWatcher();
     destroyMonitorView();
     destroyMonitorWin();
   });
@@ -816,9 +805,6 @@ function createWindow() {
     createViews(initialCount);
     if (monitorConfig.open) {
       ensureMonitorOpen();
-    }
-    if (degenArmed) {
-      startDegenWatcher();
     }
     initAutoUpdater(win);
   });
@@ -912,7 +898,6 @@ ipcMain.handle('ui:get-user-settings', () => ({
   rebetConfig: { ...rebetConfig },
   monitorConfig: { ...monitorConfig },
   cashoutConfig: { ...cashoutConfig },
-  degenEnabled: degenArmed,
   balanceAwareStake,
   autoRebetOnSpace,
   autoRebetCycles,
@@ -2229,7 +2214,6 @@ function emitMonitorState() {
   if (!win || win.isDestroyed()) return;
   win.webContents.send('monitor-state', !!monitorConfig.open);
   win.webContents.send('monitor-config', { ...monitorConfig });
-  win.webContents.send('degen-state', { armed: degenArmed });
 }
 
 function getActiveMonitorWebContents() {
@@ -2449,75 +2433,7 @@ function openOrToggleMonitor(forceOpen) {
   return closeMonitor();
 }
 
-// ─── Degen mode watcher ────────────────────────────────────────────────────
-
-let degenChecking = false;
-
-function checkDegenTrigger() {
-  if (!degenArmed || degenChecking) return;
-  const wc = getActiveMonitorWebContents();
-  if (!wc || wc.isDestroyed()) return;
-  degenChecking = true;
-  wc.executeJavaScript(CHECK_BETPAWA_UNAVAILABLE_JS).then((res) => {
-    degenChecking = false;
-    if (res && res.triggered && degenArmed) {
-      degenArmed = false;
-      stopDegenWatcher();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('degen-state', { armed: false, triggered: true, match: res.match });
-        win.webContents.send('acc-status', {
-          msg: `[DEGEN TRIGGERED] BetPawa betslip unavailable (${res.match})! Placing and confirming all bets...`,
-        });
-      }
-      triggerPlaceBet('Degen Auto');
-      saveUserSettings();
-    }
-  }).catch(() => {
-    degenChecking = false;
-  });
-}
-
-function startDegenWatcher() {
-  stopDegenWatcher();
-  if (!degenArmed) return;
-  degenInterval = setInterval(checkDegenTrigger, 100);
-}
-
-function stopDegenWatcher() {
-  if (degenInterval) {
-    clearInterval(degenInterval);
-    degenInterval = null;
-  }
-}
-
-function toggleDegen(forceState) {
-  degenArmed = typeof forceState === 'boolean' ? forceState : !degenArmed;
-  if (degenArmed) {
-    // If monitor is closed or not BetPawa, switch monitor to BetPawa and ensure open
-    if (monitorConfig.site !== 'betpawa') {
-      monitorConfig.site = 'betpawa';
-      ensureMonitorOpen(getMonitorTargetUrl('betpawa'));
-    } else if (!monitorConfig.open) {
-      ensureMonitorOpen(getMonitorTargetUrl('betpawa'));
-    }
-    startDegenWatcher();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('acc-status', {
-        msg: '[DEGEN] Degen Mode ARMED: Watching BetPawa betslip — will place all bets automatically when unavailable/red!',
-      });
-    }
-  } else {
-    stopDegenWatcher();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('acc-status', { msg: 'Degen Mode Disarmed.' });
-    }
-  }
-  emitMonitorState();
-  saveUserSettings();
-  return degenArmed;
-}
-
-// IPC handles for monitor & Degen
+// IPC handles for monitor
 ipcMain.handle('ui:toggle-monitor', () => openOrToggleMonitor());
 ipcMain.handle('ui:get-monitor-state', () => !!monitorConfig.open);
 ipcMain.handle('ui:get-monitor-config', () => ({ ...monitorConfig }));
@@ -2589,110 +2505,7 @@ ipcMain.handle('ui:reload-monitor', () => {
 
 ipcMain.handle('ui:zoom-monitor', (_e, actionOrValue) => adjustMonitorZoom(actionOrValue));
 
-ipcMain.handle('ui:toggle-degen', (_e, forceState) => toggleDegen(forceState));
-
-// ─── IPC: Place bet in all armed views & prepare background rebet stakes ────
-
-async function triggerPlaceBet(sourceLabel = 'UI') {
-  console.log(`[SAFETY][BetTrigger] triggerPlaceBet invoked | Source: "${sourceLabel}" | Timestamp: ${new Date().toISOString()}`);
-  // Read current stakes from all views and prepare decremented rebet stakes in background immediately
-  let detectedStake = null;
-
-  await Promise.all(
-    views.map(async (v, i) => {
-      if (!viewReady(v)) return;
-      const raw = await v.webContents.executeJavaScript(readFieldCode('')).catch(() => null);
-      const cur = parsePositiveStake(raw);
-      if (cur) {
-        if (!detectedStake || (leadView && v === leadView)) detectedStake = cur;
-        lastStakeByView.set(v.webContents.id, cur);
-      }
-    })
-  );
-
-  if (detectedStake) {
-    currentSharedStake = String(detectedStake);
-  } else {
-    detectedStake = parsePositiveStake(currentSharedStake) || 100;
-  }
-
-  const baseStake = detectedStake || 100;
-  views.forEach((v, i) => {
-    if (!v || v.webContents.isDestroyed()) return;
-    const prof = getPaneProfile(i);
-    const isGh = prof.country === 'gh';
-    const minStakeNum = parseFloat(minStakeForProfile(prof.site, prof.country)) || (isGh ? 0.1 : 10);
-    const nextStake = calculateRebetDecrement(baseStake, isGh, minStakeNum);
-    preparedRebetStakes.set(v.webContents.id, nextStake);
-  });
-
-  const results = await Promise.all(
-    views.map(async (v, i) => {
-      if (!viewReady(v)) return { placed: false, confirmed: false };
-      try {
-        const res = await v.webContents.executeJavaScript(PLACE_BET_JS);
-        if (res && res.traceLogs && res.traceLogs.length > 0) {
-          console.log(`[PlaceBet:Trace:Pane ${i + 1}]\n  ` + res.traceLogs.join('\n  '));
-        }
-        if (res && res.confirmed) {
-          console.log(`[PlaceBet] Pane ${i + 1}: Bet placed and confirmed ("${res.label || ''}")`);
-        } else if (res && res.placed) {
-          console.log(`[PlaceBet] Pane ${i + 1}: Bet placed`);
-        }
-        return res;
-      } catch (err) {
-        console.error(`[PlaceBet] Pane ${i + 1} PLACE_BET_JS error:`, err);
-        return { placed: false, confirmed: false };
-      }
-    })
-  );
-
-  // Fast follow-up sweep only if any pane has an open dialog/modal (e.g. odds change confirmation)
-  await Promise.all(
-    views.map(async (v, i) => {
-      if (!viewReady(v)) return;
-      try {
-        const hasOpenDialog = await v.webContents.executeJavaScript(`(() => {
-          return !!document.querySelector('.es-dialog, .m-dialog, .af-dialog, [role="dialog"]');
-        })()`).catch(() => false);
-        if (hasOpenDialog) {
-          const sweep = await v.webContents.executeJavaScript(CLICK_ANY_CONFIRM_JS);
-          if (sweep && sweep.clicked) {
-            console.log(`[PlaceBet] Pane ${i + 1}: Secondary confirm clicked ("${sweep.label || ''}")`);
-          }
-        }
-      } catch (_) { }
-    })
-  );
-
-  const placed = results.filter((r) => r && r.placed).length;
-  const confirmed = results.filter((r) => r && r.confirmed).length;
-  const insufficientCount = results.filter((r) => r && r.error === 'insufficient_balance').length;
-  const onDepositCount = results.filter((r) => r && r.error === 'on_deposit_page').length;
-  const oddsLockedCount = results.filter((r) => r && r.oddsLocked).length;
-
-  if (win && !win.isDestroyed()) {
-    if (insufficientCount > 0) {
-      win.webContents.send('acc-status', {
-        msg: `Insufficient balance on ${insufficientCount} window(s). Stake exceeds available balance. Redirect to deposit prevented.`,
-      });
-    } else if (oddsLockedCount > 0) {
-      win.webContents.send('acc-status', {
-        msg: `Odds locked or market suspended on ${oddsLockedCount} window(s).`,
-      });
-    } else if (onDepositCount > 0) {
-      win.webContents.send('acc-status', {
-        msg: `${onDepositCount} window(s) was on Deposit page. Restoring betslip...`,
-      });
-    } else {
-      win.webContents.send('acc-status', {
-        msg: `Place Bet & Confirm on ${placed}/${views.length} window(s) [${sourceLabel}] (Confirmed: ${confirmed}/${views.length}) (Rebet step: NG -₦${rebetConfig.decrementNG} / GH -GH₵${rebetConfig.decrementGH})`,
-      });
-    }
-  }
-
-  return { placed, confirmed, insufficientCount, onDepositCount, oddsLocked: oddsLockedCount > 0, total: views.length, results };
-}
+// ─── IPC: Place bet via UI / Single Bet Spacebar ────────────────────────────
 
 ipcMain.handle('ui:place-bet', () => triggerSingleBetSpacebar('UI Header Button: Place Bet'));
 ipcMain.handle('ui:trigger-single-bet-spacebar', (_e, sourceLabel) =>

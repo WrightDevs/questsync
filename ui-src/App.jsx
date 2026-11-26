@@ -115,7 +115,6 @@ export default function App() {
 
   const [hotkeysEnabled, setHotkeysEnabled] = useState(() => saved('hotkeys', '1') !== '0');
   const [betanoOpen, setBetanoOpen] = useState(false);
-  const [degenArmed, setDegenArmed] = useState(false);
   const [betanoConfig, setBetanoConfig] = useState(() => ({
     site: 'betano',
     ...savedJson('betanoCfg', DEFAULT_BETANO_CFG),
@@ -347,7 +346,6 @@ export default function App() {
         setCashoutConfig(s.cashoutConfig);
         window.api.setCashoutConfig(s.cashoutConfig).catch(() => {});
       }
-      if (typeof s.degenEnabled === 'boolean') setDegenArmed(s.degenEnabled);
       if (s.country === 'ng' || s.country === 'gh') {
         setCountry(s.country);
         localStorage.setItem('ui:country', s.country);
@@ -430,12 +428,6 @@ export default function App() {
         setBetanoOpen(!!cfg.open);
         const { open: _o, ...prefs } = cfg;
         localStorage.setItem('ui:betanoCfg', JSON.stringify(prefs));
-      }),
-      window.api.onDegenState && window.api.onDegenState((d) => {
-        if (d && typeof d.armed === 'boolean') setDegenArmed(d.armed);
-        if (d && d.triggered) {
-          setStatusMsg(`Degen triggered: BetPawa unavailable (${d.match || 'suspended'})! Placed bets.`);
-        }
       }),
       window.api.onStakeSynced && window.api.onStakeSynced((stk) => {
         setProfitRows((prev) => {
@@ -862,14 +854,6 @@ export default function App() {
     setStatusMsg(`W${index + 1} reloaded`);
   };
 
-  const handleToggleDegen = async () => {
-    const next = !degenArmed;
-    setDegenArmed(next);
-    const state = await (window.api.toggleDegen ? window.api.toggleDegen(next) : false);
-    setDegenArmed(state);
-    setStatusMsg(state ? 'Degen Mode armed: auto-bets when BetPawa suspends' : 'Degen Mode disarmed');
-  };
-
   const handleToggleBetano = async () => {
     const open = await window.api.toggleMonitor();
     setBetanoOpen(open);
@@ -1077,8 +1061,6 @@ export default function App() {
           onZoomBetano={handleZoomBetano}
           betanoOpen={betanoOpen}
           onToggleBetano={handleToggleBetano}
-          degenArmed={degenArmed}
-          onToggleDegen={handleToggleDegen}
           autoCashout={autoCashout}
           onToggleAutoCashout={handleToggleAutoCashout}
           cashoutConfig={cashoutConfig}

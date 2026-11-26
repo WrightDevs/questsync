@@ -72,8 +72,6 @@ export default function SettingsPage({
   onZoomBetano,
   betanoOpen = false,
   onToggleBetano,
-  degenArmed = false,
-  onToggleDegen,
 
   // Cashout
   autoCashout = false,
@@ -680,21 +678,6 @@ export default function SettingsPage({
               >
                 <span className="indicator" />
                 <span>{bMobileUA ? 'Mobile Layout' : 'Desktop Layout'}</span>
-              </button>
-            </div>
-
-            <div className="settings-row">
-              <div className="row-info">
-                <span className="row-title">Degen Mode</span>
-                <span className="row-desc">Automatically fire bets across all panes when BetPawa suspends</span>
-              </div>
-              <button
-                type="button"
-                className={`toggle-switch ${degenArmed ? 'is-on warn' : ''}`}
-                onClick={onToggleDegen}
-              >
-                <span className="indicator" />
-                <span>{degenArmed ? 'Armed' : 'Disarmed'}</span>
               </button>
             </div>
 
