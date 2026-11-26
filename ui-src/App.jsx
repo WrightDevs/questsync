@@ -423,19 +423,13 @@ export default function App() {
           }
         }
       }),
-      window.api.onBetanoState && window.api.onBetanoState((open) => setBetanoOpen(!!open)),
       window.api.onMonitorState && window.api.onMonitorState((open) => setBetanoOpen(!!open)),
-      window.api.onBetanoConfig && window.api.onBetanoConfig((cfg) => {
+      window.api.onMonitorConfig && window.api.onMonitorConfig((cfg) => {
         if (!cfg || typeof cfg !== 'object') return;
         setBetanoConfig(cfg);
         setBetanoOpen(!!cfg.open);
         const { open: _o, ...prefs } = cfg;
         localStorage.setItem('ui:betanoCfg', JSON.stringify(prefs));
-      }),
-      window.api.onMonitorConfig && window.api.onMonitorConfig((cfg) => {
-        if (!cfg || typeof cfg !== 'object') return;
-        setBetanoConfig(cfg);
-        setBetanoOpen(!!cfg.open);
       }),
       window.api.onDegenState && window.api.onDegenState((d) => {
         if (d && typeof d.armed === 'boolean') setDegenArmed(d.armed);
@@ -877,16 +871,14 @@ export default function App() {
   };
 
   const handleToggleBetano = async () => {
-    const fn = window.api.toggleMonitor || window.api.toggleBetano;
-    const open = await fn();
+    const open = await window.api.toggleMonitor();
     setBetanoOpen(open);
     const label = (betanoConfig?.site === 'betpawa') ? 'betPawa' : 'Betano';
     setStatusMsg(open ? `${label} monitor opened` : `${label} monitor closed`);
   };
 
   const handleUpdateBetanoConfig = async (patch) => {
-    const fn = window.api.setMonitorConfig || window.api.setBetanoConfig;
-    const updated = await fn(patch);
+    const updated = await window.api.setMonitorConfig(patch);
     if (updated && typeof updated === 'object') {
       setBetanoConfig((prev) => ({ ...prev, ...updated }));
       setBetanoOpen(!!updated.open);
@@ -896,8 +888,7 @@ export default function App() {
   };
 
   const handleZoomBetano = async (action) => {
-    const fn = window.api.zoomMonitor || window.api.zoomBetano;
-    const updated = await fn(action);
+    const updated = await window.api.zoomMonitor(action);
     if (updated && typeof updated === 'object') {
       setBetanoConfig((prev) => ({ ...prev, ...updated }));
       const { open: _o, ...prefs } = updated;
@@ -1082,7 +1073,7 @@ export default function App() {
           }}
           betanoConfig={betanoConfig}
           onUpdateBetanoConfig={handleUpdateBetanoConfig}
-          onReloadBetano={() => (window.api.reloadMonitor ? window.api.reloadMonitor() : window.api.reloadBetano())}
+          onReloadBetano={() => window.api.reloadMonitor()}
           onZoomBetano={handleZoomBetano}
           betanoOpen={betanoOpen}
           onToggleBetano={handleToggleBetano}

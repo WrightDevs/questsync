@@ -53,7 +53,6 @@ let isModalOpen = false;
 
 function updateViewsVisibility() {
   const isSoftware = currentAppRoute === '/software' && !isModalOpen;
-  const activeMonitorV = monitorView || betanoView;
   if (!isSoftware) {
     views.forEach((v) => {
       try {
@@ -62,10 +61,10 @@ function updateViewsVisibility() {
         v.setBounds({ x: -10000, y: -10000, width: 380, height: 800 });
       } catch (_) { }
     });
-    if (activeMonitorV && !activeMonitorV.webContents.isDestroyed()) {
+    if (monitorView && !monitorView.webContents.isDestroyed()) {
       try {
-        if (typeof activeMonitorV.setVisible === 'function') activeMonitorV.setVisible(false);
-        activeMonitorV.setBounds({ x: -10000, y: -10000, width: 380, height: 800 });
+        if (typeof monitorView.setVisible === 'function') monitorView.setVisible(false);
+        monitorView.setBounds({ x: -10000, y: -10000, width: 380, height: 800 });
       } catch (_) { }
     }
   } else {
@@ -74,9 +73,9 @@ function updateViewsVisibility() {
         if (typeof v.setVisible === 'function') v.setVisible(true);
       } catch (_) { }
     });
-    if (activeMonitorV && !activeMonitorV.webContents.isDestroyed()) {
+    if (monitorView && !monitorView.webContents.isDestroyed()) {
       try {
-        if (typeof activeMonitorV.setVisible === 'function') activeMonitorV.setVisible(true);
+        if (typeof monitorView.setVisible === 'function') monitorView.setVisible(true);
       } catch (_) { }
     }
     layout();
@@ -97,15 +96,9 @@ const monitorConfig = {
   zoom: 0.65,      // independent monitor zoom (0.5..1.5)
   mobileUA: true,  // mobile User-Agent
 };
-// Backward compatibility reference
-const betanoConfig = monitorConfig;
-let betanoWin = null;
-let betanoView = null;
-let betanoBounds = null;
 
 const MONITOR_MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
-const BETANO_MOBILE_UA = MONITOR_MOBILE_UA;
 
 let degenArmed = false;
 let degenInterval = null;
@@ -463,18 +456,17 @@ function layout() {
   const top = currentBarHeight;
   const availH = Math.max(0, h - top);
 
-  const activeMonitorV = monitorView || betanoView;
-  const docked = !!(monitorConfig.open && monitorConfig.mode === 'dock' && activeMonitorV && !activeMonitorV.webContents.isDestroyed());
+  const docked = !!(monitorConfig.open && monitorConfig.mode === 'dock' && monitorView && !monitorView.webContents.isDestroyed());
   const rawBw = Math.min(540, Math.max(260, parseInt(monitorConfig.width, 10) || 340));
   const bw = docked ? Math.min(rawBw, Math.floor(w * 0.45)) : 0;
   const sportyW = docked ? Math.max(260, w - bw - PANE_GAP) : w;
   const sportyX = docked && monitorConfig.side === 'left' ? (w - sportyW) : 0;
 
   let monitorBounds = null;
-  if (docked && activeMonitorV) {
+  if (docked && monitorView) {
     const bx = monitorConfig.side === 'left' ? 0 : (sportyW + PANE_GAP);
     const actualBw = monitorConfig.side === 'left' ? Math.max(0, sportyX - PANE_GAP) : Math.max(0, w - bx);
-    activeMonitorV.setBounds({ x: bx, y: top, width: actualBw, height: availH });
+    monitorView.setBounds({ x: bx, y: top, width: actualBw, height: availH });
     monitorBounds = {
       open: true,
       site: monitorConfig.site || 'betano',
@@ -2229,46 +2221,20 @@ ipcMain.on('mirror-event', (e, payload) => {
   }
 });
 
-// ─── Betano.ng monitor (Docked WebContentsView or Floating Window) ──────────
+// ─── Odds Benchmark Monitor (Docked WebContentsView or Floating Window) ──────
 
-const BETANO_URL = 'https://www.betano.ng/';
 let defaultDesktopUA = null;
-
-function getActiveBetanoWebContents() {
-  if (betanoView && !betanoView.webContents.isDestroyed()) return betanoView.webContents;
-  if (betanoWin && !betanoWin.isDestroyed() && !betanoWin.webContents.isDestroyed()) return betanoWin.webContents;
-  return null;
-}
-
-function getBetanoUrl() {
-  const wc = getActiveBetanoWebContents();
-  if (!wc) return BETANO_URL;
-  try {
-    const u = wc.getURL();
-    return u && u !== 'about:blank' ? u : BETANO_URL;
-  } catch (_) {
-    return BETANO_URL;
-  }
-}
-
-function emitBetanoState() {
-  emitMonitorState();
-}
 
 function emitMonitorState() {
   if (!win || win.isDestroyed()) return;
   win.webContents.send('monitor-state', !!monitorConfig.open);
   win.webContents.send('monitor-config', { ...monitorConfig });
-  win.webContents.send('betano-state', !!monitorConfig.open);
-  win.webContents.send('betano-config', { ...monitorConfig });
   win.webContents.send('degen-state', { armed: degenArmed });
 }
 
 function getActiveMonitorWebContents() {
-  const v = monitorView || betanoView;
-  if (v && !v.webContents.isDestroyed()) return v.webContents;
-  const w = monitorWin || betanoWin;
-  if (w && !w.isDestroyed() && !w.webContents.isDestroyed()) return w.webContents;
+  if (monitorView && !monitorView.webContents.isDestroyed()) return monitorView.webContents;
+  if (monitorWin && !monitorWin.isDestroyed() && !monitorWin.webContents.isDestroyed()) return monitorWin.webContents;
   return null;
 }
 
@@ -2359,30 +2325,24 @@ function attachMonitorInputHandlers(wc) {
 }
 
 function destroyMonitorView() {
-  const v = monitorView || betanoView;
+  const v = monitorView;
   monitorView = null;
-  betanoView = null;
   if (!v) return;
   try { if (win && !win.isDestroyed()) win.contentView.removeChildView(v); } catch (_) { }
   try { if (!v.webContents.isDestroyed()) v.webContents.close(); } catch (_) { }
 }
 
 function destroyMonitorWin() {
-  const w = monitorWin || betanoWin;
+  const w = monitorWin;
   monitorWin = null;
-  betanoWin = null;
   if (!w) return;
   try {
     if (!w.isDestroyed()) {
       monitorBounds = w.getBounds();
-      betanoBounds = monitorBounds;
       w.close();
     }
   } catch (_) { }
 }
-
-function destroyBetanoView() { destroyMonitorView(); }
-function destroyBetanoWin() { destroyMonitorWin(); }
 
 function ensureMonitorOpen(preserveUrl) {
   monitorConfig.open = true;
@@ -2390,7 +2350,7 @@ function ensureMonitorOpen(preserveUrl) {
 
   if (monitorConfig.mode === 'dock') {
     destroyMonitorWin();
-    let v = monitorView || betanoView;
+    let v = monitorView;
     if (!v || v.webContents.isDestroyed()) {
       if (!win || win.isDestroyed()) return;
       v = new WebContentsView({
@@ -2402,7 +2362,6 @@ function ensureMonitorOpen(preserveUrl) {
         },
       });
       monitorView = v;
-      betanoView = v;
       applyMonitorUA(v.webContents);
       v.webContents.setZoomFactor(monitorConfig.zoom);
       attachMonitorInputHandlers(v.webContents);
@@ -2419,7 +2378,7 @@ function ensureMonitorOpen(preserveUrl) {
   } else {
     destroyMonitorView();
     layout();
-    let bw = monitorWin || betanoWin;
+    let bw = monitorWin;
     if (!bw || bw.isDestroyed()) {
       let initX;
       let initY;
@@ -2448,17 +2407,15 @@ function ensureMonitorOpen(preserveUrl) {
         },
       });
       monitorWin = bw;
-      betanoWin = bw;
       bw.setMenuBarVisibility(false);
       applyMonitorUA(bw.webContents);
       bw.webContents.setZoomFactor(monitorConfig.zoom);
       attachMonitorInputHandlers(bw.webContents);
-      bw.on('move', () => { if (monitorWin === bw && !bw.isDestroyed()) { monitorBounds = bw.getBounds(); betanoBounds = monitorBounds; } });
-      bw.on('resize', () => { if (monitorWin === bw && !bw.isDestroyed()) { monitorBounds = bw.getBounds(); betanoBounds = monitorBounds; } });
+      bw.on('move', () => { if (monitorWin === bw && !bw.isDestroyed()) { monitorBounds = bw.getBounds(); } });
+      bw.on('resize', () => { if (monitorWin === bw && !bw.isDestroyed()) { monitorBounds = bw.getBounds(); } });
       bw.on('closed', () => {
         if (monitorWin === bw) {
           monitorWin = null;
-          betanoWin = null;
           monitorConfig.open = false;
           layout();
           emitMonitorState();
@@ -2633,19 +2590,6 @@ ipcMain.handle('ui:reload-monitor', () => {
 ipcMain.handle('ui:zoom-monitor', (_e, actionOrValue) => adjustMonitorZoom(actionOrValue));
 
 ipcMain.handle('ui:toggle-degen', (_e, forceState) => toggleDegen(forceState));
-ipcMain.handle('ui:get-degen-state', () => degenArmed);
-
-// Backward compatibility IPC aliases
-ipcMain.handle('ui:toggle-betano', () => openOrToggleMonitor());
-ipcMain.handle('ui:get-betano-state', () => !!monitorConfig.open);
-ipcMain.handle('ui:get-betano-config', () => ({ ...monitorConfig }));
-ipcMain.handle('ui:set-betano-config', (_e, patch) => ipcMain.emit ? monitorConfig : patch);
-ipcMain.handle('ui:reload-betano', () => {
-  const wc = getActiveMonitorWebContents();
-  if (wc) wc.reload();
-  return !!wc;
-});
-ipcMain.handle('ui:zoom-betano', (_e, actionOrValue) => adjustMonitorZoom(actionOrValue));
 
 // ─── IPC: Place bet in all armed views & prepare background rebet stakes ────
 
@@ -3419,8 +3363,8 @@ app.on('window-all-closed', async () => {
     clearInterval(autoCashoutTimer);
     autoCashoutTimer = null;
   }
-  destroyBetanoView();
-  destroyBetanoWin();
+  destroyMonitorView();
+  destroyMonitorWin();
   app.quit();
 });
 app.on('before-quit', async () => {
