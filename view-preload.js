@@ -141,21 +141,15 @@ function checkEditableFocus() {
   let editable = false;
   if (el && el !== document.body && el !== document.documentElement) {
     const tag = el.tagName;
-    if (tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable) {
+    if (tag === 'TEXTAREA') {
+      editable = !el.readOnly && !el.disabled;
+    } else if (tag === 'SELECT') {
+      editable = !el.disabled;
+    } else if (el.isContentEditable) {
       editable = true;
     } else if (tag === 'INPUT') {
       const t = (el.type || 'text').toLowerCase();
-      editable = !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image'].includes(t);
-    } else if (
-      el.closest('.m-keybord-input, [data-op="betslip-keyboard-trigger"], .stake-keyboard, .m-keyboard, [class*="stake" i], [class*="keyboard" i]')
-    ) {
-      editable = true;
-    }
-  }
-  if (!editable) {
-    const activeKeypad = document.querySelector('.stake-keyboard, .m-keyboard, .m-input-keyboard-wrapper');
-    if (activeKeypad && isElementVisible(activeKeypad)) {
-      editable = true;
+      editable = !el.readOnly && !el.disabled && !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image'].includes(t);
     }
   }
   if (editable !== lastEditableFocus) {
@@ -1094,7 +1088,7 @@ let slipObsTimer = null;
 
 function readSlipSignature() {
   const candidates = Array.from(document.querySelectorAll(
-    '[data-op="fast-betslip-container"], [data-op="betslip-bottom-sheet"], [data-op="betslip-selection"], .m-fast-betslip, .m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i], #betslip, .m-slip'
+    '[data-op="fast-betslip-container"], [data-op="betslip-bottom-sheet"], [data-op="betslip-selection"], [data-op="betslip-confirm-to-pay-modal"], .m-fast-betslip, .m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i], #betslip, .m-slip'
   )).filter((el) => {
     const cls = String(el.className || '');
     if (/(bar|entry|icon|badge|count)/i.test(cls) && !el.matches('[data-op="fast-betslip-container"]')) return false;
@@ -1288,11 +1282,22 @@ function checkAndDismissNativeAutoAcceptPrompt() {
 }
 
 function findAcceptChangesButton() {
+  const activeConfirmBtn = Array.from(document.querySelectorAll(
+    'button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-btn"], [data-op="confirm-to-pay-btn"]'
+  )).find(isElementClickable);
+  const activeConfirmModal = Array.from(document.querySelectorAll(
+    '[data-op="betslip-confirm-to-pay-modal"]'
+  )).find(isElementClickable);
+
   const candidates = Array.from(document.querySelectorAll(
     '.required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], [data-op="fast-betslip-single-bottom-row-right-content"], [data-op="betslip-placebet"], .place-bet, [class*="place-bet" i], .m-fast-betslip button, .m-betslip button, [class*="betslip" i] button, [data-op="betslip-confirm"], .flexibet-confirm, button, [role="button"], .m-btn'
   )).filter(isElementClickable);
 
   for (const b of candidates) {
+    // Do not click Accept Changes behind/outside an active Confirm button or Confirm modal
+    if (activeConfirmModal && !activeConfirmModal.contains(b)) continue;
+    if (activeConfirmBtn && b !== activeConfirmBtn && !activeConfirmBtn.contains(b)) continue;
+
     const txt = String(b.innerText || b.textContent || '').trim().toLowerCase();
     if (/deposit|recharge|top[\s-]?up|cancel|close|back|dismiss/i.test(txt)) continue;
     const isAccept = (

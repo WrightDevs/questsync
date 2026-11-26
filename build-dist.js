@@ -296,7 +296,18 @@ async function main() {
       '--title',
       `QuestSync ${versionTag}`,
       '--notes',
-      `Release ${versionTag}: Fully decoupled odds monitor from betting panes (removed all pane match-syncing, auto-search, and automated market selection).`,
+      [
+        `## QuestSync ${versionTag}`,
+        '',
+        '### What\'s New & Updated',
+        '- **Release Splash Screen**: Clean modern overview of all features, hotkeys, and v1.1.0 updates on startup and via the top-nav version badge.',
+        '- **1-Click & 2-Click Single Bet Mode**: State-based Spacebar execution mode in Settings (1-Click places & confirms; 2-Click separates Place Bet and Confirm).',
+        '- **Auto-Accept Odds & Prompt Guard**: Top-nav toggle silently accepts idle betslip odds changes (never triggering accidental bets) and dismisses SportyBet\'s native prompt.',
+        '- **Zero-Delay Instant Enter Manual Rebet**: Pre-warmed microtask MutationObserver catches Rebet in <0.5ms with polling fallback.',
+        '- **Confirm-Safe Auto-Stake Updates**: Odds shifts while on Confirm update reactive store/DOM stakes silently without opening/closing keypad or dropping Confirm.',
+        '- **Spacebar Reliability Fix**: Prevented Spacebar from scrolling market options when the betslip stake wrapper is open or while stakes sync.',
+        '- **Smooth Scroll Sync & Leaner Engine**: Synchronized vertical pane scrolling without echo loops, rapid market-switch retries, strict safety guards, and dead-code cleanup.',
+      ].join('\n'),
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
     if (pubRes.status === 0) {

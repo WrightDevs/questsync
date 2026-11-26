@@ -1,10 +1,12 @@
 import React from 'react';
-import { LayoutGrid, Users, SlidersHorizontal, Zap, BookOpen, ArrowDownCircle } from 'lucide-react';
+import { LayoutGrid, Users, SlidersHorizontal, Zap, BookOpen, ArrowDownCircle, Sparkles } from 'lucide-react';
 
 export default function AppNav({
   currentRoute = 'software',
   onNavigate,
   onOpenGuide,
+  onOpenSplash,
+  appVersion = '1.1.0',
   autoRebetState = { running: false, cycle: 0, target: 1 },
   todayBets = 0,
   todayTotal = '0.00',
@@ -24,6 +26,17 @@ export default function AppNav({
       <div className="nav-brand-section">
         <span className="nav-brand-title">QuestSync</span>
         <span className="nav-brand-badge">PRO</span>
+        {onOpenSplash && (
+          <button
+            type="button"
+            className="nav-version-pill"
+            onClick={onOpenSplash}
+            title={`What's New & Features in QuestSync v${appVersion}`}
+          >
+            <Sparkles size={10} />
+            <span>v{appVersion}</span>
+          </button>
+        )}
       </div>
 
       <div className="nav-divider" />

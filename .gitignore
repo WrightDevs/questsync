@@ -4,3 +4,5 @@ release/
 ui-dist/
 *.log
 .updaterId
+license.config.json.bak
+license.config.json

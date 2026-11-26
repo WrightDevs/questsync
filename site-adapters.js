@@ -117,8 +117,40 @@ function minStakeForProfile(site, country = 'ng') {
 
 // ─── Shared in-page DOM snippets (handle both SportyBet & Football.com) ───
 
+const HAS_CONFIRM_OPEN_EXPR = `(() => {
+  const isV = (el) => {
+    if (!el || el.disabled) return false;
+    if (el.getAttribute('aria-disabled') === 'true' || el.getAttribute('disabled') !== null) return false;
+    if (el.classList.contains('is-disabled') || el.classList.contains('disabled')) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 5 || r.height < 5) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none' && st.pointerEvents !== 'none';
+  };
+  const isCo = (el) => !!(el && el.closest && el.closest('.m-cashout, [class*="cashout" i], [data-op*="cashout" i], [class*="open_bets" i]'));
+  if (Array.from(document.querySelectorAll('[data-op="betslip-success-rebet"], [data-op="betslip-success"], .m-betslip-success, .m-success-box, [class*="betslip-success" i]')).some(el => isV(el) && !isCo(el))) return false;
+  if (Array.from(document.querySelectorAll('button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-wrap"] [data-op="betslip-confirm"], button[data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-btn"], [data-op="confirm-to-pay-btn"], [data-op="betslip-confirm-to-pay-modal"], .m-fast-betslip button:has([data-cms-key="confirm"]), .m-betslip button:has([data-cms-key="confirm"]), [data-op*="betslip" i] button:has([data-cms-key="confirm"])')).some(el => isV(el) && !isCo(el))) return true;
+  const modals = Array.from(document.querySelectorAll('.es-dialog, .m-dialog, .af-dialog, .m-pop-box, .m-pop, .m-modal, [role="dialog"], [class*="dialog" i], [class*="modal" i], [class*="popup" i], [class*="sheet" i], [class*="confirm" i]')).filter(m => isV(m) && !isCo(m));
+  for (const m of modals) {
+    const mt = String(m.innerText || m.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+    if (/insufficient\\s*(funds|balance)|not\\s*enough\\s*balance|please\\s*deposit|low\\s*balance|\\bcash\\s*out\\b|\\bcashout\\b|auto-accept odds change/i.test(mt)) continue;
+    if (mt.includes('odds change next time') && mt.includes('bet settings')) continue;
+    const btns = Array.from(m.querySelectorAll('button, [role="button"], .m-btn, .af-button, .es-button, [class*="btn" i], [class*="confirm" i], [class*="pay" i]')).filter(c => isV(c) && !isCo(c));
+    if (btns.some(c => {
+      const t = String(c.innerText || c.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+      const op = String(c.getAttribute('data-op') || '').toLowerCase();
+      if (!t || /\\b(deposit|recharge|top[\\s-]?up|cancel|close|back|later|dismiss|re-?bet|place\\s*bet)\\b/i.test(t)) return false;
+      return op.includes('confirm') || op.includes('pay') || /\\b(confirm|pay\\s*now)\\b/i.test(t);
+    })) return true;
+  }
+  return false;
+})()`;
+
+const IS_CONFIRM_OPEN_JS = `(${HAS_CONFIRM_OPEN_EXPR})`;
+
 const FIND_STAKE_INPUT_JS = `
   (() => {
+    const confirmOpen = ${HAS_CONFIRM_OPEN_EXPR};
     const isVis = (el) => {
       if (!el) return false;
       const r = el.getBoundingClientRect();
@@ -145,7 +177,7 @@ const FIND_STAKE_INPUT_JS = `
       const countBadge = Array.from(document.querySelectorAll('[data-op="betslip-selection-count"]')).find(isVis);
       const hasSheet = !!Array.from(document.querySelectorAll('[data-op="betslip-bottom-sheet"]')).find(isVis);
       const hasFast = !!Array.from(document.querySelectorAll('[data-op="fast-betslip-container"]')).find(isVis);
-      if (countBadge && !hasSheet && !hasFast) {
+      if (!confirmOpen && countBadge && !hasSheet && !hasFast) {
         try {
           const _nuxtEl = document.querySelector('#__nuxt') || document.querySelector('#app') || countBadge;
           let _pinia = null;
@@ -177,9 +209,9 @@ const FIND_STAKE_INPUT_JS = `
       }
     }
 
-    // 1. Auto-expand SportyBet betslip if collapsed/minimized
+    // 1. Auto-expand SportyBet betslip if collapsed/minimized (never click while Confirm is open)
     const slipBar = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i]');
-    if (slipBar && isVis(slipBar)) {
+    if (!confirmOpen && slipBar && isVis(slipBar)) {
       const slipBox = Array.from(document.querySelectorAll('.m-betslip, .m-fast-betslip, [class*="betslip" i], [class*="bet-slip" i]')).find(el => {
         if (el === slipBar || slipBar.contains(el)) return false;
         const cls = String(el.className || '');
@@ -474,6 +506,30 @@ function readFieldCode(selector) {
       if (!el) {
         const findStake = ${FIND_STAKE_INPUT_JS};
         el = findStake;
+      }
+      if (!el && ${HAS_CONFIRM_OPEN_EXPR}) {
+        // Confirm overlay may hide underlying betslip input; read mounted element or store read-only
+        el = document.querySelector(
+          'span.m-keybord-input, span.m-keyboard-input, [data-op="betslip-keyboard-trigger"], .m-betslip input[type="tel"], .m-betslip input[type="number"], [class*="betslip" i] input[name*="stake" i]'
+        );
+        if (!el) {
+          try {
+            const appEl = document.querySelector('#app');
+            const ss = appEl?.__vue_app__?.config?.globalProperties?.$store?.state?.betslipStake?.singleStake;
+            if (ss && typeof ss === 'object') {
+              const vals = Object.values(ss).map(v => String(v || '').trim()).filter(Boolean);
+              if (vals.length > 0) return vals[0];
+            }
+            const ms = appEl?.__vue_app__?.config?.globalProperties?.$store?.state?.betslipStake?.multipleStake;
+            if (ms !== undefined && String(ms).trim()) return String(ms).trim();
+          } catch (_) {}
+          try {
+            const nuxtEl = document.querySelector('#__nuxt') || document.querySelector('#app');
+            const pinia = nuxtEl?.__vue_app__?.config?.globalProperties?.$pinia;
+            const st = pinia?._s?.get('betslip_stake');
+            if (st?.defaultStake) return String(st.defaultStake).trim();
+          } catch (_) {}
+        }
       }
       if (!el) return null;
       if (el.classList && el.classList.contains('m-input--placeholder')) return '';
@@ -2187,6 +2243,7 @@ const FAST_SET_STAKE_JS = (val) => `
     const vStr = ${JSON.stringify(String(val))};
     if (!vStr) return false;
 
+    const confirmOpen = ${HAS_CONFIRM_OPEN_EXPR};
     const isVis = (el) => {
       if (!el) return false;
       const r = el.getBoundingClientRect();
@@ -2198,7 +2255,10 @@ const FAST_SET_STAKE_JS = (val) => `
     // 1. Direct standard or hidden <input> / <textarea>
     const inputs = Array.from(document.querySelectorAll(
       'input[name*="stake" i], input[placeholder*="stake" i], input[class*="stake" i], .m-betslip input, [class*="betslip" i] input, input[type="tel"], input[type="number"]'
-    )).filter(isVis);
+    )).filter((inp) => {
+      if (inp.type === 'hidden' || inp.type === 'password' || inp.type === 'checkbox' || inp.type === 'radio') return false;
+      return isVis(inp) || (confirmOpen && !!inp.closest('.m-betslip, .m-fast-betslip, [class*="betslip" i], [data-op*="betslip" i], [name*="stake" i]'));
+    });
 
     for (const inp of inputs) {
       if (inp.name === 'c2c-converter-input' || inp.closest('[data-op="c2c-converter-input"]')) continue;
@@ -2209,8 +2269,10 @@ const FAST_SET_STAKE_JS = (val) => `
         if (setter) setter.call(inp, vStr);
         else inp.value = vStr;
         inp.dispatchEvent(new Event('input', { bubbles: true }));
-        inp.dispatchEvent(new Event('change', { bubbles: true }));
-        inp.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+        if (!confirmOpen) {
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+          inp.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+        }
         if (inp.value === vStr) modelVerified = true;
       } catch (_) {}
     }
@@ -2218,7 +2280,7 @@ const FAST_SET_STAKE_JS = (val) => `
     // 2. Mobile custom display elements (SportyBet span.m-keybord-input & Football.com)
     const customEls = Array.from(document.querySelectorAll(
       'span.m-keybord-input, span.m-keyboard-input, [data-op="betslip-keyboard-trigger"], [class*="keybord-input" i], [class*="keyboard-input" i], .m-betslip-stake span'
-    )).filter(isVis);
+    )).filter((el) => isVis(el) || confirmOpen);
 
     for (const el of customEls) {
       try {
@@ -2231,6 +2293,29 @@ const FAST_SET_STAKE_JS = (val) => `
           ${FOOTBALL_SYNC_STAKE_SNIPPET('vStr', 'el')}
           modelVerified = true;
         } else {
+          let directStateUpdated = false;
+          // Vue 3 global store commit first (safe direct reactive state update without UI-reset handlers)
+          const appEl = document.querySelector('#app');
+          if (appEl && appEl.__vue_app__) {
+            const globalStore = appEl.__vue_app__.config?.globalProperties?.$store;
+            if (globalStore) {
+              try {
+                if (globalStore.state?.betslipStake?.singleStake) {
+                  for (const k of Object.keys(globalStore.state.betslipStake.singleStake)) {
+                    globalStore.state.betslipStake.singleStake[k] = vStr;
+                    directStateUpdated = true;
+                    modelVerified = true;
+                  }
+                }
+                if (globalStore.state?.betslipStake && 'multipleStake' in globalStore.state.betslipStake) {
+                  globalStore.state.betslipStake.multipleStake = vStr;
+                  directStateUpdated = true;
+                  modelVerified = true;
+                }
+              } catch (_) {}
+            }
+          }
+
           // Traverse Vue 2 and Vue 3 component hierarchy
           let cur = el;
           while (cur && cur !== document.documentElement) {
@@ -2239,32 +2324,38 @@ const FAST_SET_STAKE_JS = (val) => `
             if (comp) {
               try { comp.emit('input', vStr); } catch (_) {}
               try { comp.emit('update:modelValue', vStr); } catch (_) {}
-              try { comp.emit('change', vStr); } catch (_) {}
+              if (!confirmOpen) {
+                try { comp.emit('change', vStr); } catch (_) {}
+              }
 
               const proxy = comp.proxy || comp.ctx || comp.setupState;
               if (proxy) {
-                if (typeof proxy.changeSingleStake === 'function') {
-                  try { proxy.changeSingleStake(vStr); modelVerified = true; } catch (_) {}
-                }
-                if (typeof proxy.changeMultipleStake === 'function') {
-                  try { proxy.changeMultipleStake(vStr); modelVerified = true; } catch (_) {}
-                }
                 if (proxy.bet && proxy.bet.key && proxy.singleStake) {
-                  try { proxy.singleStake[proxy.bet.key] = vStr; modelVerified = true; } catch (_) {}
+                  try { proxy.singleStake[proxy.bet.key] = vStr; directStateUpdated = true; modelVerified = true; } catch (_) {}
+                }
+                if (!confirmOpen || !directStateUpdated) {
+                  if (typeof proxy.changeSingleStake === 'function') {
+                    try { proxy.changeSingleStake(vStr); modelVerified = true; } catch (_) {}
+                  }
+                  if (typeof proxy.changeMultipleStake === 'function') {
+                    try { proxy.changeMultipleStake(vStr); modelVerified = true; } catch (_) {}
+                  }
                 }
               }
 
               if (comp.parent) {
                 const pProxy = comp.parent.proxy || comp.parent.ctx || comp.parent.setupState;
                 if (pProxy) {
-                  if (typeof pProxy.changeSingleStake === 'function') {
-                    try { pProxy.changeSingleStake(vStr); modelVerified = true; } catch (_) {}
-                  }
-                  if (typeof pProxy.changeMultipleStake === 'function') {
-                    try { pProxy.changeMultipleStake(vStr); modelVerified = true; } catch (_) {}
-                  }
                   if (pProxy.bet && pProxy.bet.key && pProxy.singleStake) {
-                    try { pProxy.singleStake[pProxy.bet.key] = vStr; modelVerified = true; } catch (_) {}
+                    try { pProxy.singleStake[pProxy.bet.key] = vStr; directStateUpdated = true; modelVerified = true; } catch (_) {}
+                  }
+                  if (!confirmOpen || !directStateUpdated) {
+                    if (typeof pProxy.changeSingleStake === 'function') {
+                      try { pProxy.changeSingleStake(vStr); modelVerified = true; } catch (_) {}
+                    }
+                    if (typeof pProxy.changeMultipleStake === 'function') {
+                      try { pProxy.changeMultipleStake(vStr); modelVerified = true; } catch (_) {}
+                    }
                   }
                 }
               }
@@ -2276,50 +2367,56 @@ const FAST_SET_STAKE_JS = (val) => `
               if ('stake' in vm) vm.stake = vStr;
               if ('value' in vm) vm.value = vStr;
               if ('currentStake' in vm) vm.currentStake = vStr;
-              if (typeof vm.$emit === 'function') {
-                vm.$emit('input', vStr);
-                vm.$emit('change', vStr);
-              }
               if (vm.$store && typeof vm.$store.commit === 'function') {
                 try { vm.$store.commit('betslip/updateStake', vStr); } catch (_) {}
                 try { vm.$store.commit('betslip/setStake', vStr); } catch (_) {}
                 try { vm.$store.commit('setStake', vStr); } catch (_) {}
+              }
+              if (typeof vm.$emit === 'function') {
+                vm.$emit('input', vStr);
+                if (!confirmOpen) vm.$emit('change', vStr);
               }
               modelVerified = true;
               break;
             }
             cur = cur.parentElement;
           }
-
-          // Vue 3 global store commit
-          const appEl = document.querySelector('#app');
-          if (appEl && appEl.__vue_app__) {
-            const globalStore = appEl.__vue_app__.config?.globalProperties?.$store;
-            if (globalStore) {
-              try {
-                if (globalStore.state?.betslipStake?.singleStake) {
-                  for (const k of Object.keys(globalStore.state.betslipStake.singleStake)) {
-                    globalStore.state.betslipStake.singleStake[k] = vStr;
-                    modelVerified = true;
-                  }
-                }
-                if (globalStore.state?.betslipStake && 'multipleStake' in globalStore.state.betslipStake) {
-                  globalStore.state.betslipStake.multipleStake = vStr;
-                  modelVerified = true;
-                }
-              } catch (_) {}
-            }
-          }
         }
 
         el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
+        if (!confirmOpen) {
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      } catch (_) {}
+    }
+
+    // Also update reactive store even if customEls wasn't mounted in DOM while Confirm modal is open
+    if (confirmOpen && !modelVerified) {
+      try {
+        const isFootball = /football\\.com/i.test(location.hostname || '');
+        if (isFootball) {
+          ${FOOTBALL_SYNC_STAKE_SNIPPET('vStr', 'document.body')}
+          modelVerified = true;
+        } else {
+          const appEl = document.querySelector('#app');
+          const globalStore = appEl?.__vue_app__?.config?.globalProperties?.$store;
+          if (globalStore?.state?.betslipStake?.singleStake) {
+            for (const k of Object.keys(globalStore.state.betslipStake.singleStake)) {
+              globalStore.state.betslipStake.singleStake[k] = vStr;
+              modelVerified = true;
+            }
+          }
+          if (globalStore?.state?.betslipStake && 'multipleStake' in globalStore.state.betslipStake) {
+            globalStore.state.betslipStake.multipleStake = vStr;
+            modelVerified = true;
+          }
+        }
       } catch (_) {}
     }
 
     // 3. Instant in-DOM Keypad click sequence WITHOUT OS pointer events or delays
-    // If the keypad container is mounted, click buttons synchronously in <1ms
-    const kb = document.querySelector('div.stake-keyboard, [data-op="stake-keyboard"], div.m-keyboard, div.m-keybord, [class*="m-keyboard" i]');
+    // Never click keypad/clear/done buttons while Confirm is open (would drop Confirm).
+    const kb = !confirmOpen && document.querySelector('div.stake-keyboard, [data-op="stake-keyboard"], div.m-keyboard, div.m-keybord, [class*="m-keyboard" i]');
     if (kb && isVis(kb)) {
       try {
         const clearBtn = kb.querySelector('[data-key="clear"], [data-op="clearAll"]');
@@ -2727,6 +2824,7 @@ module.exports = {
   rewriteUrlForProfile,
   minStakeForProfile,
   FIND_STAKE_INPUT_JS,
+  IS_CONFIRM_OPEN_JS,
   KEYBOARD_CONTAINER_SELECTOR,
   MONITOR_URLS,
   oddsReadCode,

@@ -13,6 +13,7 @@ const {
   rewriteUrlForProfile,
   minStakeForProfile,
   FIND_STAKE_INPUT_JS,
+  IS_CONFIRM_OPEN_JS,
   KEYBOARD_CONTAINER_SELECTOR,
   MONITOR_URLS,
   oddsReadCode,
@@ -652,7 +653,7 @@ function createViews(count) {
         return;
       }
 
-      if (suppressFocusRelay || !hotkeysEnabled) return;
+      if (!hotkeysEnabled) return;
 
       if (input.key === 'Escape') {
         if (autoRebetRunning) {
@@ -698,6 +699,7 @@ function createViews(count) {
 
     v.webContents.on('did-finish-load', () => {
       if (!v.webContents.isDestroyed()) {
+        viewEditableFocus.set(v.webContents.id, false);
         v.webContents.setZoomFactor(zoom);
         try { v.webContents.send('set-auto-accept-odds', !!options.autoAcceptOdds); } catch (_) {}
       }
@@ -720,6 +722,7 @@ function createViews(count) {
       }
     });
     v.webContents.on('did-navigate', (_e, url) => {
+      if (!v.webContents.isDestroyed()) viewEditableFocus.set(v.webContents.id, false);
       syncProfileFromView(i);
       sendPaneStates();
       syncNavigationFromLead(i, url);
@@ -1673,6 +1676,11 @@ async function setStakeInView(v, stakeSel, text) {
   // Fast path: direct zero-delay DOM/Vue injection without manual keypad delays
   const fastOk = await v.webContents.executeJavaScript(FAST_SET_STAKE_JS(val)).catch(() => false);
   if (fastOk) return true;
+
+  // Never fall back to focus/clicks/keypad while Confirm is open, because clicking
+  // the stake box, opening/closing the keypad, or clicking the betslip header drops Confirm.
+  const confirmOpen = await v.webContents.executeJavaScript(IS_CONFIRM_OPEN_JS).catch(() => false);
+  if (confirmOpen) return false;
 
   try {
     v.webContents.send('set-suppress-capture', true);

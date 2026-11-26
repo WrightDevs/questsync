@@ -1,7 +1,7 @@
 {
   "name": "questsync",
   "productName": "QuestSync",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "QuestSync - Multi-Account Synced Betting & Rapid Attack Engine",
   "repository": "github:WrightDevs/questsync",
   "main": "main.js",

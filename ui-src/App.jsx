@@ -5,6 +5,9 @@ import PaneStrip from './components/PaneStrip.jsx';
 import AccountsPage from './components/AccountsPage.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
 import NotificationBoard from './components/NotificationBoard.jsx';
+import ReleaseSplash from './components/ReleaseSplash.jsx';
+
+const APP_VERSION = '1.1.0';
 
 const saved = (k, fallback) => {
   const v = localStorage.getItem('ui:' + k);
@@ -137,16 +140,32 @@ export default function App() {
   const [layoutGeometry, setLayoutGeometry] = useState(null);
   const [statusMsg, setStatusMsg] = useState('Ready | Enter: Single Bet | Space: Armed Mode | Alt+C: Cashout All');
 
-  // ─── Welcome / Notification Board Guide Modal ───
+  // ─── Release Splash Screen & Notification Board Guide Modal ───
+  const [showSplash, setShowSplash] = useState(() => {
+    return localStorage.getItem('ui:splashDismissedVersion') !== APP_VERSION;
+  });
   const [showGuide, setShowGuide] = useState(() => {
     return localStorage.getItem('ui:guideDismissed') !== '1';
   });
 
   useEffect(() => {
     if (window.api && window.api.setModalOpen) {
-      window.api.setModalOpen(showGuide);
+      window.api.setModalOpen(showSplash || showGuide);
     }
-  }, [showGuide]);
+  }, [showSplash, showGuide]);
+
+  const handleCloseSplash = useCallback((dontShowForVersion) => {
+    if (dontShowForVersion) {
+      localStorage.setItem('ui:splashDismissedVersion', APP_VERSION);
+    } else {
+      localStorage.removeItem('ui:splashDismissedVersion');
+    }
+    setShowSplash(false);
+  }, []);
+
+  const handleOpenSplash = useCallback(() => {
+    setShowSplash(true);
+  }, []);
 
   const handleCloseGuide = useCallback((dontShowAgain) => {
     if (dontShowAgain) {
@@ -162,7 +181,7 @@ export default function App() {
   }, []);
 
   // ─── In-App Auto-Update State ───
-  const [updateStatus, setUpdateStatus] = useState({ status: 'idle', currentVersion: '1.0.3' });
+  const [updateStatus, setUpdateStatus] = useState({ status: 'idle', currentVersion: APP_VERSION });
 
   useEffect(() => {
     if (window.api && window.api.onUpdateStatus) {
@@ -171,7 +190,7 @@ export default function App() {
           setUpdateStatus((prev) => ({
             ...prev,
             ...s,
-            currentVersion: s.currentVersion || prev.currentVersion || '1.0.1',
+            currentVersion: s.currentVersion || prev.currentVersion || APP_VERSION,
           }));
           if (s.status === 'downloaded') {
             setStatusMsg(`Update v${s.version || ''} ready to install · Click Update in top bar`);
@@ -189,7 +208,7 @@ export default function App() {
           setUpdateStatus((prev) => ({
             ...prev,
             ...s,
-            currentVersion: s.currentVersion || prev.currentVersion || '1.0.1',
+            currentVersion: s.currentVersion || prev.currentVersion || APP_VERSION,
           }));
         }
       }).catch(() => {});
@@ -910,6 +929,8 @@ export default function App() {
         currentRoute={route}
         onNavigate={navigateTo}
         onOpenGuide={handleOpenGuide}
+        onOpenSplash={handleOpenSplash}
+        appVersion={updateStatus?.currentVersion || APP_VERSION}
         autoRebetState={autoRebetState}
         todayBets={todayBets}
         todayTotal={todayTotal}
@@ -1063,9 +1084,18 @@ export default function App() {
         />
       )}
 
+      {/* ─── Release Splash Screen (Features & What's New) ─── */}
+      <ReleaseSplash
+        isOpen={showSplash}
+        version={updateStatus?.currentVersion || APP_VERSION}
+        onClose={handleCloseSplash}
+        onOpenGuide={handleOpenGuide}
+        onNavigateSettings={() => navigateTo('settings')}
+      />
+
       {/* ─── Notification Board Modal (Onboarding & Best Practices) ─── */}
       <NotificationBoard
-        isOpen={showGuide}
+        isOpen={showGuide && !showSplash}
         onClose={handleCloseGuide}
         onNavigateSettings={() => navigateTo('settings')}
       />
