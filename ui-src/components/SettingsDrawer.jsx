@@ -16,6 +16,8 @@ export default function SettingsDrawer({
   onUpdateRebetConfig,
   autoRebetOnSpace = true,
   onToggleAutoRebetOnSpace,
+  singleBetClickMode = '1-click',
+  onSingleBetClickModeChange,
   autoRebetCycles = 3,
   onAutoRebetCyclesChange,
   balanceAwareStake = true,
@@ -126,6 +128,27 @@ export default function SettingsDrawer({
               <span className="indicator" />
               <span>{autoRebetOnSpace ? 'Armed' : 'Single Bet'}</span>
             </button>
+          </div>
+          <div className={`drawer-row ${autoRebetOnSpace ? 'is-disabled' : ''}`}>
+            <span className="drawer-label">Single Bet Mode</span>
+            <div className="seg-group">
+              <button
+                type="button"
+                disabled={autoRebetOnSpace}
+                className={`seg-btn ${singleBetClickMode !== '2-click' ? 'is-active' : ''}`}
+                onClick={() => onSingleBetClickModeChange && onSingleBetClickModeChange('1-click')}
+              >
+                1-Click
+              </button>
+              <button
+                type="button"
+                disabled={autoRebetOnSpace}
+                className={`seg-btn ${singleBetClickMode === '2-click' ? 'is-active' : ''}`}
+                onClick={() => onSingleBetClickModeChange && onSingleBetClickModeChange('2-click')}
+              >
+                2-Click
+              </button>
+            </div>
           </div>
           <div className={`drawer-row ${!autoRebetOnSpace ? 'is-disabled' : ''}`}>
             <span className="drawer-label">Auto-Rebet Cycles</span>

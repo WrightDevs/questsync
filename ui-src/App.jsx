@@ -104,6 +104,10 @@ export default function App() {
   // Auto-Rebet Continuous Engine
   const [autoRebetCycles, setAutoRebetCycles] = useState(() => saved('autoRebetCycles', '3'));
   const [autoRebetOnSpace, setAutoRebetOnSpace] = useState(() => saved('autoRebetOnSpace', '1') !== '0');
+  const [singleBetClickMode, setSingleBetClickMode] = useState(() => {
+    const v = saved('singleBetClickMode', '1-click');
+    return v === '2-click' ? '2-click' : '1-click';
+  });
   const [autoRebetState, setAutoRebetState] = useState({ running: false, cycle: 0, target: 1, status: 'Idle' });
 
   const [oddsSel, setOddsSel] = useState(() => saved('oddsSel', ''));
@@ -324,6 +328,10 @@ export default function App() {
         setAutoRebetOnSpace(s.autoRebetOnSpace);
         localStorage.setItem('ui:autoRebetOnSpace', s.autoRebetOnSpace ? '1' : '0');
       }
+      if (s.singleBetClickMode === '1-click' || s.singleBetClickMode === '2-click') {
+        setSingleBetClickMode(s.singleBetClickMode);
+        localStorage.setItem('ui:singleBetClickMode', s.singleBetClickMode);
+      }
       if (typeof s.autoRebetCycles === 'number' || typeof s.autoRebetCycles === 'string') {
         setAutoRebetCycles(String(s.autoRebetCycles));
         localStorage.setItem('ui:autoRebetCycles', String(s.autoRebetCycles));
@@ -502,7 +510,8 @@ export default function App() {
         if (!isControl) {
           e.preventDefault();
           if (autoRebetState.running) {
-            handleStopAutoRebet();
+            if (autoRebetOnSpace) handleStopAutoRebet();
+            // In Single Bet mode, ignore extra Spacebar presses while a pass/step is in-flight
           } else if (autoRebetOnSpace) {
             handleStartAutoRebet('Hotkey: Spacebar (UI - Rapid Attack)');
           } else {
@@ -695,13 +704,28 @@ export default function App() {
   };
 
   const handlePlaceBet = async (src = 'UI Header: Place Bet Button') => {
-    setStatusMsg('Placing single bet (1 pass) across all panes...');
-    if (window.api && window.api.startAutoRebet) {
-      await window.api.startAutoRebet(1, src);
+    if (window.api && window.api.triggerSingleBetSpacebar) {
+      await window.api.triggerSingleBetSpacebar(src);
     } else if (window.api && window.api.placeBet) {
       await window.api.placeBet();
-      setStatusMsg('Single bet placed across panes');
     }
+  };
+
+  const handleSingleBetClickModeChange = async (mode) => {
+    if (mode !== '1-click' && mode !== '2-click') return;
+    setSingleBetClickMode(mode);
+    localStorage.setItem('ui:singleBetClickMode', mode);
+    if (window.api && window.api.setSingleBetClickMode) {
+      await window.api.setSingleBetClickMode(mode);
+    }
+    if (window.api && window.api.saveUserSettings) {
+      window.api.saveUserSettings({ singleBetClickMode: mode });
+    }
+    setStatusMsg(
+      mode === '2-click'
+        ? 'Single Bet mode: 2-Click (Space 1 = Place Bet, Space 2 = Confirm)'
+        : 'Single Bet mode: 1-Click (Space = Place Bet → Confirm)'
+    );
   };
 
   const handleStopAutoRebet = async () => {
@@ -1030,6 +1054,8 @@ export default function App() {
           onUpdateRebetConfig={handleUpdateRebetConfig}
           autoRebetOnSpace={autoRebetOnSpace}
           onToggleAutoRebetOnSpace={handleToggleAutoRebetOnSpace}
+          singleBetClickMode={singleBetClickMode}
+          onSingleBetClickModeChange={handleSingleBetClickModeChange}
           autoRebetCycles={autoRebetCycles}
           onAutoRebetCyclesChange={handleAutoRebetCycles}
           balanceAwareStake={balanceAwareStake}

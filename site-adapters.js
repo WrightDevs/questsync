@@ -3872,6 +3872,363 @@ const SELECT_BETPAWA_NEXT_GOAL_AND_OPEN_SLIP_JS = `
   })()
 `;
 
+// ─── Single Bet 2-Click State-Based Helpers ──────────────────────────────────
+// Shared DOM state inspection and step-isolated Place Bet / Confirm scripts.
+// Strictly excludes Cashout dialogs, native auto-accept prompts, and deposit links.
+const SINGLE_BET_DOM_HELPERS = `
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  const norm = (el) => String(el?.innerText || el?.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+  const isVis = (el) => {
+    if (!el || el.disabled) return false;
+    if (el.getAttribute('aria-disabled') === 'true' || el.getAttribute('disabled') !== null) return false;
+    if (el.classList.contains('is-disabled') || el.classList.contains('disabled')) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 5 || r.height < 5) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none' && st.pointerEvents !== 'none';
+  };
+  const isCashoutEl = (el) => !!(el && el.closest && el.closest('.m-cashout, [class*="cashout" i], [data-op*="cashout" i], [class*="open_bets" i]'));
+  const isDepositText = (t) => !!t && /\\b(deposit|top[\\s-]?up|recharge|fund|add\\s*funds?|deposit\\s*&\\s*bet)\\b/i.test(t);
+  const isPlaceBetText = (t) => {
+    if (!t || isDepositText(t)) return false;
+    return (
+      t.includes('place bet') || t.includes('placebet') ||
+      t.includes('bet now') || t.includes('place a bet') ||
+      t === 'bet' ||
+      t.includes('accept change') || t.includes('accept changes') ||
+      t.includes('save change') || t.includes('save changes') ||
+      t === 'accept'
+    );
+  };
+  const isStrictConfirmText = (t) => {
+    if (!t || t.length > 80 || isDepositText(t)) return false;
+    if (/^(cancel|close|back|no|decline|reject|exit|dismiss|later|×|✕)$/i.test(t)) return false;
+    if (/\\b(cancel|close|keep looking|continue betting|place bet|placebet)\\b/i.test(t)) return false;
+    if (/\\b(confirm bet|confirm to pay|confirm order|pay now)\\b/i.test(t)) return true;
+    if (/^confirm\\b/i.test(t) || /\\bconfirm\\b/i.test(t)) return true;
+    if (/\\b(agree|proceed|submit)\\b/i.test(t)) return true;
+    return false;
+  };
+  const isRebetText = (t) => {
+    if (!t || t.length > 50 || isDepositText(t)) return false;
+    return /^re-?bet(\\s+(now|all|selections?))?$/i.test(t) || t === 'rebet' ||
+      /\\b(re-?bet|bet again|keep selections?|repeat bet|duplicate bet|one more)\\b/i.test(t);
+  };
+  const isNavOrFooter = (el) => {
+    if (!el) return false;
+    if (el.closest('.m-fast-betslip, .m-fast-stake-wrapper, .m-fast-stake, [data-op="fast-betslip-container"], [data-op="fast-betslip-wrap"], [data-op*="fast-betslip" i], [class*="fast-betslip" i], .m-betslip, .m-bet-slip, [class*="betslip" i], [class*="bet-slip" i], .es-dialog, .m-dialog, .af-dialog, .m-pop-box, .m-pop, .m-modal, [role="dialog"], [class*="dialog" i], [class*="modal" i], [class*="popup" i], [class*="sheet" i]')) {
+      return false;
+    }
+    return !!el.closest('footer, nav, .m-bottom-nav, .m-main-tab, .af-tabbar, .m-footer, header, .m-header, .m-nav-bar, .af-nav-bar, [class*="bottom-nav" i], [class*="tabbar" i]');
+  };
+  const isDepositElement = (el) => {
+    try {
+      if (!el) return false;
+      const t = norm(el);
+      if (isPlaceBetText(t) || isStrictConfirmText(t) || isRebetText(t)) return false;
+      if (isNavOrFooter(el) || isDepositText(t)) return true;
+      const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
+      if (op.includes('deposit') || op.includes('recharge') || op.includes('topup')) return true;
+      if (op.includes('pay') && !op.includes('betslip') && !op.includes('confirm') && !op.includes('place')) return true;
+      const href = String(el.getAttribute?.('href') || '').toLowerCase();
+      if (href.includes('deposit') || href.includes('recharge')) return true;
+      const cls = String(el.className || '').toLowerCase();
+      if (cls.includes('deposit')) return true;
+    } catch (_) {}
+    return false;
+  };
+  const isSuccessModalOpen = () => {
+    return !!Array.from(document.querySelectorAll(
+      '[data-op="betslip-success-rebet"], [data-op="betslip-success"], .m-betslip-success, .m-success-box, [class*="betslip-success" i]'
+    )).find(b => isVis(b) && !isCashoutEl(b));
+  };
+  const tryFindRebet = () => {
+    const exact = Array.from(document.querySelectorAll(
+      'button[data-op="betslip-success-rebet"], [data-op="betslip-success-rebet"], button.rebet, button[class*="rebet" i], [data-cms-key="rebet"], .rebet-text, [data-op*="rebet" i]'
+    )).find(b => isVis(b) && !isDepositElement(b) && !isNavOrFooter(b) && !isCashoutEl(b));
+    if (exact) return exact;
+    const dialogs = Array.from(document.querySelectorAll(
+      '.es-dialog, .m-dialog, .af-dialog, .m-pop-box, .m-pop, .m-modal, [role="dialog"], [class*="dialog" i], [class*="modal" i], [class*="success" i]'
+    )).filter(d => isVis(d) && !isCashoutEl(d));
+    for (const d of dialogs) {
+      const hit = Array.from(d.querySelectorAll(
+        'button, [role="button"], a, .m-btn, .af-button, [class*="btn" i], [class*="rebet" i], [data-op*="rebet" i]'
+      )).filter(b => isVis(b) && !isDepositElement(b) && !isNavOrFooter(b) && !isCashoutEl(b))
+        .find(el => {
+          const op = String(el.getAttribute?.('data-op') || '').toLowerCase();
+          return op.includes('rebet') || isRebetText(norm(el));
+        });
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const findStrictConfirmCandidate = () => {
+    if (isSuccessModalOpen()) return null;
+    const exactSportyConfirm = Array.from(document.querySelectorAll(
+      'button[data-op="betslip-confirm"], [data-op="betslip-confirm"], button.flexibet-confirm, .flexibet-confirm, [data-op="betslip-confirm-wrap"] [data-op="betslip-confirm"], button[data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-confirm"], [data-op="betslip-confirm-to-pay-btn"], [data-op="confirm-to-pay-btn"], .m-fast-betslip button:has([data-cms-key="confirm"]), .m-betslip button:has([data-cms-key="confirm"]), [data-op*="betslip" i] button:has([data-cms-key="confirm"])'
+    )).find(b => isVis(b) && !isDepositElement(b) && !isCashoutEl(b));
+    if (exactSportyConfirm) return exactSportyConfirm;
+
+    const modalContainers = Array.from(document.querySelectorAll(
+      '.es-dialog, .m-dialog, .af-dialog, .m-pop-box, .m-pop, .m-modal, [role="dialog"], [class*="dialog" i], [class*="modal" i], [class*="popup" i], [class*="sheet" i], [class*="confirm" i]'
+    )).filter(m => isVis(m) && !isCashoutEl(m));
+
+    for (const modal of modalContainers) {
+      const modalTxt = norm(modal);
+      if (/insufficient\\s*(funds|balance)|not\\s*enough\\s*balance|please\\s*deposit|low\\s*balance/i.test(modalTxt)) continue;
+      if (modalTxt.includes('auto-accept odds change') || (modalTxt.includes('odds change next time') && modalTxt.includes('bet settings'))) continue;
+      if (/\\bcash\\s*out\\b|\\bcashout\\b/i.test(modalTxt)) continue;
+      if (modal.querySelector('[data-op="betslip-success-rebet"], [data-op="betslip-success"], .m-betslip-success')) continue;
+      const candidates = Array.from(modal.querySelectorAll(
+        'button, [role="button"], .m-btn, .af-button, .es-button, [class*="btn" i], [class*="confirm" i], [class*="pay" i]'
+      )).filter(c => isVis(c) && !isDepositElement(c) && !isCashoutEl(c));
+      const hit = candidates.find(c => {
+        if (c.tagName !== 'BUTTON' && c.querySelector('button, [role="button"]')) return false;
+        const t = norm(c);
+        if (isDepositText(t) || isRebetText(t)) return false;
+        const op = String(c.getAttribute('data-op') || '').toLowerCase();
+        if (op.includes('deposit') || op.includes('recharge') || op.includes('rebet') || op.includes('placebet')) return false;
+        if (op.includes('confirm') || op.includes('pay')) return true;
+        return isStrictConfirmText(t);
+      });
+      if (hit) return hit;
+    }
+
+    const slipRoot = document.querySelector('.m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i], #betslip');
+    if (slipRoot && isVis(slipRoot) && !isNavOrFooter(slipRoot) && !isCashoutEl(slipRoot)) {
+      const candidates = Array.from(slipRoot.querySelectorAll(
+        'button, [role="button"], .m-btn, .af-button, .es-button, [class*="btn" i], [class*="confirm" i]'
+      )).filter(c => isVis(c) && !isDepositElement(c) && !isNavOrFooter(c) && !isCashoutEl(c));
+      const hit = candidates.find(c => {
+        if (c.tagName !== 'BUTTON' && c.querySelector('button, [role="button"]')) return false;
+        const t = norm(c);
+        if (isDepositText(t) || isRebetText(t) || isPlaceBetText(t)) return false;
+        const op = String(c.getAttribute('data-op') || '').toLowerCase();
+        if (op.includes('deposit') || op.includes('recharge') || op.includes('placebet')) return false;
+        if (op.includes('confirm')) return true;
+        return isStrictConfirmText(t);
+      });
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const findPlaceBetBtn = () => {
+    const isFootball = /football\\.com/i.test(location.hostname || '');
+    if (isFootball) {
+      const sheet = Array.from(document.querySelectorAll('[data-op="betslip-bottom-sheet"]')).find(isVis);
+      const fast = Array.from(document.querySelectorAll('[data-op="fast-betslip-container"]')).find(isVis);
+      const sheetBtn = sheet && Array.from(sheet.querySelectorAll('[data-op="betslip-placebet"]')).find(b => isVis(b) && !isDepositElement(b) && !isCashoutEl(b));
+      const fastBtn = fast && Array.from(fast.querySelectorAll('[data-op="fast-betslip-single-bottom-row-right-content"], [data-op="betslip-placebet"]')).find(b => isVis(b) && !isDepositElement(b) && !isCashoutEl(b));
+      return sheetBtn || fastBtn || Array.from(document.querySelectorAll('[data-op="betslip-placebet"], [data-op="fast-betslip-single-bottom-row-right-content"]')).find(b => isVis(b) && !isDepositElement(b) && !isCashoutEl(b));
+    }
+    const fastSlip = Array.from(document.querySelectorAll(
+      '.m-fast-betslip, .m-fast-stake-wrapper, .m-fast-stake, [data-op="fast-betslip-container"], [data-op="fast-betslip-wrap"], [data-op*="fast-betslip" i], [class*="fast-betslip" i]'
+    )).find(isVis);
+    if (fastSlip) {
+      const candidates = Array.from(fastSlip.querySelectorAll(
+        '.place-bet, [class*="place-bet" i], .required-change, [data-op="single-placebet"], [data-op="single-placebet-text"], [data-op="fast-betslip-single-bottom-row-right-content"], [data-op="betslip-placebet"], button, [role="button"], .m-btn, [class*="btn" i]'
+      )).filter(b => isVis(b) && !isDepositElement(b) && !isNavOrFooter(b) && !isCashoutEl(b));
+      const match = candidates.find(b => isPlaceBetText(norm(b)));
+      if (match) return match;
+    }
+    const directFast = Array.from(document.querySelectorAll(
+      '[data-op="fast-betslip-single-bottom-row-right-content"], [data-op="single-placebet"], .place-bet, [class*="place-bet" i]'
+    )).find(b => isVis(b) && !isDepositElement(b) && !isNavOrFooter(b) && !isCashoutEl(b) && isPlaceBetText(norm(b)));
+    if (directFast) return directFast;
+    const rawExactPlace = Array.from(document.querySelectorAll(
+      'button[data-op="betslip-placebet"], [data-op="betslip-placebet"], button:has([data-cms-key="place_bet"]), button:has([data-cms-key="placebet"]), button.place-bet, [data-op*="placebet" i]'
+    )).find(b => isVis(b) && !isNavOrFooter(b) && !isDepositElement(b) && !isCashoutEl(b));
+    if (rawExactPlace) return rawExactPlace;
+    const slipRoot = document.querySelector('.m-bet-slip, .m-betslip, [class*="betslip" i], [class*="bet-slip" i], #betslip');
+    if (slipRoot && isVis(slipRoot) && !isCashoutEl(slipRoot)) {
+      const btns = Array.from(slipRoot.querySelectorAll(
+        'button, [role="button"], .m-btn, .af-button, .es-button, [class*="btn" i], [class*="submit" i], [class*="place" i]'
+      )).filter(b => isVis(b) && !isDepositElement(b) && !isNavOrFooter(b) && !isCashoutEl(b) && isPlaceBetText(norm(b)));
+      if (btns.length > 0) return btns[btns.length - 1];
+    }
+    return null;
+  };
+  const triggerClick = (target) => {
+    if (!target || isDepositElement(target) || isCashoutEl(target)) return null;
+    const btn = (target.tagName === 'BUTTON' || target.getAttribute('role') === 'button')
+      ? target
+      : (target.closest('button, [role="button"]') || target);
+    if (isDepositElement(btn) || isCashoutEl(btn)) return null;
+    try { btn.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (_) {}
+    const r = btn.getBoundingClientRect();
+    const cx = Math.round(r.left + r.width / 2);
+    const cy = Math.round(r.top + r.height / 2);
+    const evInit = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0, buttons: 1 };
+    const tapTarget = btn.matches?.('.place-bet, [class*="place-bet" i], .flexibet-confirm, [data-op*="confirm" i]')
+      ? btn
+      : (btn.closest?.('.place-bet, [class*="place-bet" i], .flexibet-confirm, [data-op*="confirm" i]')
+         || btn.querySelector?.('.place-bet, [class*="place-bet" i], .flexibet-confirm, [data-op*="confirm" i]')
+         || btn);
+    const safeTap = tapTarget?.__safe_tap_state__ || btn?.__safe_tap_state__;
+    if (safeTap && safeTap.config && typeof safeTap.config.onTap === 'function') {
+      try { safeTap.config.onTap(new MouseEvent('click', evInit)); } catch (_) {}
+    }
+    try {
+      btn.dispatchEvent(new PointerEvent('pointerdown', { ...evInit, pointerType: 'touch', isPrimary: true }));
+      btn.dispatchEvent(new PointerEvent('pointerup', { ...evInit, pointerType: 'touch', isPrimary: true }));
+    } catch (_) {}
+    try {
+      btn.dispatchEvent(new MouseEvent('mousedown', evInit));
+      btn.dispatchEvent(new MouseEvent('mouseup', evInit));
+    } catch (_) {}
+    try { btn.click(); } catch (_) {}
+    if (target !== btn && !isDepositElement(target)) {
+      try { target.click(); } catch (_) {}
+    }
+    return { x: cx, y: cy };
+  };
+`;
+
+const INSPECT_SINGLE_BET_STATE_JS = `
+  (() => {
+    ${SINGLE_BET_DOM_HELPERS}
+    const confirmBtn = findStrictConfirmCandidate();
+    if (confirmBtn) {
+      return { state: 'awaiting_confirm', label: norm(confirmBtn) };
+    }
+    if (isSuccessModalOpen() || tryFindRebet()) {
+      return { state: 'completed' };
+    }
+    const placeBtn = findPlaceBetBtn();
+    if (placeBtn) {
+      return { state: 'placeable', label: norm(placeBtn) };
+    }
+    const slipBar = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
+    if (slipBar && isVis(slipBar)) {
+      return { state: 'placeable', label: 'betslip-bar' };
+    }
+    return { state: 'idle_empty' };
+  })()
+`;
+
+const SINGLE_BET_PLACE_ONLY_JS = `
+  (async () => {
+    ${SINGLE_BET_DOM_HELPERS}
+    if (findStrictConfirmCandidate()) {
+      return { placed: false, awaitingConfirm: true, alreadyAwaitingConfirm: true };
+    }
+    if (isSuccessModalOpen() || tryFindRebet()) {
+      return { placed: false, completed: true };
+    }
+
+    const slipBar = document.querySelector('.m-betslip-bar, [class*="betslip-bar" i], .m-slip-bar, [class*="slip-bar" i], [data-op="betslip-bar"]');
+    let placeBtn = findPlaceBetBtn();
+    if (!placeBtn && slipBar && isVis(slipBar)) {
+      try { slipBar.click(); } catch (_) {}
+      for (let w = 0; w < 250; w++) {
+        await wait(4);
+        placeBtn = findPlaceBetBtn();
+        if (placeBtn) break;
+      }
+    }
+    if (!placeBtn) {
+      return { placed: false, error: 'no_place_btn' };
+    }
+
+    const initialTxt = norm(placeBtn);
+    const wasAcceptChange = initialTxt.includes('accept change') || initialTxt.includes('save change') || initialTxt === 'accept';
+    triggerClick(placeBtn);
+
+    if (wasAcceptChange) {
+      for (let ac = 0; ac < 120; ac++) {
+        await wait(6);
+        const nextPlace = findPlaceBetBtn();
+        if (nextPlace && !norm(nextPlace).includes('accept')) {
+          triggerClick(nextPlace);
+          placeBtn = nextPlace;
+          break;
+        }
+      }
+    }
+
+    let settled = null;
+    if (findStrictConfirmCandidate()) settled = { placed: true, awaitingConfirm: true };
+    else if (isSuccessModalOpen() || tryFindRebet()) settled = { placed: true, completed: true };
+
+    if (!settled) {
+      settled = await new Promise((resolve) => {
+        let done = false;
+        let obs = null;
+        let timer = null;
+        const finish = (res) => {
+          if (done) return;
+          done = true;
+          if (obs) try { obs.disconnect(); } catch (_) {}
+          if (timer) clearTimeout(timer);
+          resolve(res);
+        };
+        const check = () => {
+          if (findStrictConfirmCandidate()) finish({ placed: true, awaitingConfirm: true });
+          else if (isSuccessModalOpen() || tryFindRebet()) finish({ placed: true, completed: true });
+        };
+        try {
+          obs = new MutationObserver(check);
+          if (document.documentElement) {
+            obs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-op'] });
+          }
+        } catch (_) {}
+        timer = setTimeout(() => finish({ placed: true, awaitingConfirm: !!findStrictConfirmCandidate(), completed: !!(isSuccessModalOpen() || tryFindRebet()) }), 850);
+      });
+    }
+    return settled;
+  })()
+`;
+
+const SINGLE_BET_CONFIRM_ONLY_JS = `
+  (async () => {
+    ${SINGLE_BET_DOM_HELPERS}
+    const confirmBtn = findStrictConfirmCandidate();
+    if (!confirmBtn) {
+      return { confirmed: false, error: 'no_confirm_candidate' };
+    }
+    triggerClick(confirmBtn);
+
+    for (let sub = 0; sub < 15; sub++) {
+      await wait(10);
+      const nextC = findStrictConfirmCandidate();
+      if (nextC && nextC !== confirmBtn) {
+        triggerClick(nextC);
+        break;
+      }
+    }
+
+    if (isSuccessModalOpen() || tryFindRebet() || !findStrictConfirmCandidate()) {
+      return { confirmed: true, completed: !!(isSuccessModalOpen() || tryFindRebet()) };
+    }
+    return await new Promise((resolve) => {
+      let done = false;
+      let obs = null;
+      let timer = null;
+      const finish = (res) => {
+        if (done) return;
+        done = true;
+        if (obs) try { obs.disconnect(); } catch (_) {}
+        if (timer) clearTimeout(timer);
+        resolve(res);
+      };
+      const check = () => {
+        if (isSuccessModalOpen() || tryFindRebet()) {
+          finish({ confirmed: true, completed: true });
+        } else if (!findStrictConfirmCandidate()) {
+          finish({ confirmed: true, completed: false });
+        }
+      };
+      try {
+        obs = new MutationObserver(check);
+        if (document.documentElement) {
+          obs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-op'] });
+        }
+      } catch (_) {}
+      timer = setTimeout(() => finish({ confirmed: true, completed: !!(isSuccessModalOpen() || tryFindRebet()) }), 850);
+    });
+  })()
+`;
+
 module.exports = {
   normalizeSite,
   normalizeCountry,
@@ -3899,6 +4256,9 @@ module.exports = {
   REBET_JS,
   FAST_REBET_CYCLE_JS,
   EXECUTE_ATTACK_CYCLE_JS,
+  INSPECT_SINGLE_BET_STATE_JS,
+  SINGLE_BET_PLACE_ONLY_JS,
+  SINGLE_BET_CONFIRM_ONLY_JS,
   NAV_OPEN_BETS_JS,
   PREPARE_CASHOUT_CLICK_JS,
   FIND_CASHOUT_CONFIRM_JS,

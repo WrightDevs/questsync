@@ -25,6 +25,9 @@ const {
   REBET_JS,
   FAST_REBET_CYCLE_JS,
   EXECUTE_ATTACK_CYCLE_JS,
+  INSPECT_SINGLE_BET_STATE_JS,
+  SINGLE_BET_PLACE_ONLY_JS,
+  SINGLE_BET_CONFIRM_ONLY_JS,
   FAST_SET_STAKE_JS,
   NAV_OPEN_BETS_JS,
   PREPARE_CASHOUT_CLICK_JS,
@@ -155,6 +158,8 @@ let autoRebetCycle = 0;
 let autoRebetTarget = 1;
 let autoRebetOnSpace = true;
 let autoRebetCycles = 3;
+let singleBetClickMode = '1-click'; // '1-click' | '2-click' (applies to Single Bet mode only)
+let singleBetInFlight = false;
 let balanceAwareStake = true;
 let savedAccounts = [];
 let savedMonitorAccount = { phone: '', password: '' };
@@ -233,6 +238,9 @@ function loadUserSettings() {
       if (typeof s.autoRebetOnSpace === 'boolean') {
         autoRebetOnSpace = s.autoRebetOnSpace;
       }
+      if (s.singleBetClickMode === '1-click' || s.singleBetClickMode === '2-click') {
+        singleBetClickMode = s.singleBetClickMode;
+      }
       if (typeof s.autoRebetCycles === 'number' && s.autoRebetCycles > 0) {
         autoRebetCycles = s.autoRebetCycles;
       } else if (s.autoRebetCycles === 'inf') {
@@ -296,6 +304,7 @@ function saveUserSettings() {
       balanceAwareStake,
       autoRebetOnSpace,
       autoRebetCycles,
+      singleBetClickMode,
       country: currentCountry,
       url: currentUrl,
       oddsSel: savedOddsSel || '',
@@ -691,14 +700,17 @@ function createViews(count) {
         if (!viewEditableFocus.get(v.webContents.id)) {
           event.preventDefault();
           if (!input.isAutoRepeat) {
-            if (autoRebetRunning) {
-              stopAutoRebet();
-            } else if (autoRebetOnSpace) {
-              const runCyc = autoRebetCycles === 'inf' ? 'inf' : Math.max(1, parseInt(autoRebetCycles, 10) || 1);
-              startAutoRebet(runCyc, `Hotkey: Spacebar (Pane ${i + 1} - Rapid Attack)`);
+            if (autoRebetOnSpace) {
+              if (autoRebetRunning) {
+                stopAutoRebet();
+              } else {
+                const runCyc = autoRebetCycles === 'inf' ? 'inf' : Math.max(1, parseInt(autoRebetCycles, 10) || 1);
+                startAutoRebet(runCyc, `Hotkey: Spacebar (Pane ${i + 1} - Rapid Attack)`);
+              }
             } else {
-              // Single Bet mode: exactly ONE pass (Place Bet -> Confirm -> Stop)
-              startAutoRebet(1, `Hotkey: Spacebar (Pane ${i + 1} - Single Bet)`);
+              // Single Bet mode: ignore repeated Spacebar presses while a pass/step is in-flight
+              if (autoRebetRunning || singleBetInFlight) return;
+              triggerSingleBetSpacebar(`Hotkey: Spacebar (Pane ${i + 1} - Single Bet ${singleBetClickMode})`);
             }
           }
         }
@@ -927,6 +939,7 @@ ipcMain.handle('ui:get-user-settings', () => ({
   balanceAwareStake,
   autoRebetOnSpace,
   autoRebetCycles,
+  singleBetClickMode,
   country: currentCountry,
   url: currentUrl,
   oddsSel: savedOddsSel || '',
@@ -985,6 +998,9 @@ ipcMain.handle('ui:save-user-settings', (_e, patch) => {
     if (patch.monitorConfig) Object.assign(monitorConfig, patch.monitorConfig);
     if (patch.cashoutConfig) Object.assign(cashoutConfig, patch.cashoutConfig);
     if (typeof patch.autoRebetOnSpace === 'boolean') autoRebetOnSpace = patch.autoRebetOnSpace;
+    if (patch.singleBetClickMode === '1-click' || patch.singleBetClickMode === '2-click') {
+      singleBetClickMode = patch.singleBetClickMode;
+    }
     if (typeof patch.balanceAwareStake === 'boolean') balanceAwareStake = patch.balanceAwareStake;
     if (patch.autoRebetCycles !== undefined) {
       if (patch.autoRebetCycles === 'inf' || patch.autoRebetCycles === 0 || patch.autoRebetCycles === '0') {
@@ -2843,7 +2859,10 @@ async function triggerPlaceBet(sourceLabel = 'UI') {
   return { placed, confirmed, insufficientCount, onDepositCount, oddsLocked: oddsLockedCount > 0, total: views.length, results };
 }
 
-ipcMain.handle('ui:place-bet', () => startAutoRebet(1, 'UI Header Button: Place Bet'));
+ipcMain.handle('ui:place-bet', () => triggerSingleBetSpacebar('UI Header Button: Place Bet'));
+ipcMain.handle('ui:trigger-single-bet-spacebar', (_e, sourceLabel) =>
+  triggerSingleBetSpacebar(sourceLabel || 'UI Hotkey: Spacebar (Single Bet)')
+);
 
 async function rebetPane(v, i, preparedStake, minStakeNum) {
   const prof = getPaneProfile(i);
@@ -3215,6 +3234,79 @@ ipcMain.handle('ui:set-auto-rebet-on-space', (_e, enabled) => {
 });
 
 ipcMain.handle('ui:get-auto-rebet-on-space', () => autoRebetOnSpace);
+
+ipcMain.handle('ui:set-single-bet-click-mode', (_e, mode) => {
+  if (mode === '1-click' || mode === '2-click') {
+    singleBetClickMode = mode;
+    saveUserSettings();
+  }
+  return singleBetClickMode;
+});
+
+ipcMain.handle('ui:get-single-bet-click-mode', () => singleBetClickMode);
+
+async function triggerSingleBetSpacebar(sourceLabel = 'Hotkey: Spacebar') {
+  if (autoRebetRunning || singleBetInFlight) {
+    return { ok: false, ignored: true, reason: 'in_flight' };
+  }
+  if (singleBetClickMode === '1-click') {
+    return startAutoRebet(1, sourceLabel);
+  }
+
+  singleBetInFlight = true;
+  try {
+    const states = await Promise.all(
+      views.map(async (v) => {
+        if (!viewReady(v)) return { state: 'not_ready' };
+        try {
+          const res = await withTimeout(v.webContents.executeJavaScript(INSPECT_SINGLE_BET_STATE_JS), 1200, { state: 'error' });
+          return res || { state: 'idle_empty' };
+        } catch (_) {
+          return { state: 'error' };
+        }
+      })
+    );
+
+    const awaitingConfirmIndices = [];
+    const placeableIndices = [];
+    states.forEach((st, idx) => {
+      if (st?.state === 'awaiting_confirm') awaitingConfirmIndices.push(idx);
+      else if (st?.state === 'placeable') placeableIndices.push(idx);
+    });
+
+    if (awaitingConfirmIndices.length > 0) {
+      console.log(`[SAFETY][BetTrigger] 2-Click Single Bet: Confirm ONLY on ${awaitingConfirmIndices.length} pane(s) | Source: "${sourceLabel}"`);
+      emitAutoRebetState('Single Bet (2-Click): Confirming bet...');
+      await Promise.all(
+        awaitingConfirmIndices.map((idx) => {
+          const v = views[idx];
+          if (!viewReady(v)) return Promise.resolve(null);
+          return withTimeout(v.webContents.executeJavaScript(SINGLE_BET_CONFIRM_ONLY_JS), 2500, null).catch(() => null);
+        })
+      );
+      emitAutoRebetState('Single Bet (2-Click): Confirmed');
+      return { ok: true, step: 'confirm', panes: awaitingConfirmIndices.length };
+    }
+
+    if (placeableIndices.length > 0) {
+      console.log(`[SAFETY][BetTrigger] 2-Click Single Bet: Place Bet ONLY on ${placeableIndices.length} pane(s) | Source: "${sourceLabel}"`);
+      emitAutoRebetState('Single Bet (2-Click): Placing bet (awaiting Confirm)...');
+      await Promise.all(
+        placeableIndices.map((idx) => {
+          const v = views[idx];
+          if (!viewReady(v)) return Promise.resolve(null);
+          return withTimeout(v.webContents.executeJavaScript(SINGLE_BET_PLACE_ONLY_JS), 3000, null).catch(() => null);
+        })
+      );
+      emitAutoRebetState('Single Bet (2-Click): Placed — press Spacebar again to Confirm');
+      return { ok: true, step: 'place', panes: placeableIndices.length };
+    }
+
+    return { ok: true, step: 'noop', reason: 'no_placeable_or_confirm_state' };
+  } finally {
+    singleBetInFlight = false;
+  }
+}
 
 ipcMain.handle('ui:set-balance-aware-stake', (_e, enabled) => {
   balanceAwareStake = !!enabled;

@@ -48,6 +48,8 @@ export default function SettingsPage({
   onUpdateRebetConfig,
   autoRebetOnSpace = true,
   onToggleAutoRebetOnSpace,
+  singleBetClickMode = '1-click',
+  onSingleBetClickModeChange,
   autoRebetCycles = 3,
   onAutoRebetCyclesChange,
   balanceAwareStake = true,
@@ -435,6 +437,37 @@ export default function SettingsPage({
                 <span className="indicator" />
                 <span>{autoRebetOnSpace ? 'Rapid Attack' : 'Single Bet'}</span>
               </button>
+            </div>
+
+            <div className={`settings-row ${autoRebetOnSpace ? 'is-disabled' : ''}`}>
+              <div className="row-info">
+                <span className="row-title">Single Bet Spacebar Mode</span>
+                <span className="row-desc">
+                  {autoRebetOnSpace
+                    ? 'Applies only when Single Bet mode is selected (Enter Rebet is always unchanged)'
+                    : singleBetClickMode === '2-click'
+                      ? '2-Click: Press 1 places bet only, Press 2 confirms (state-based; Enter = Rebet)'
+                      : '1-Click: Single Spacebar press runs Place Bet → Confirm (Enter = Rebet)'}
+                </span>
+              </div>
+              <div className="seg-group">
+                <button
+                  type="button"
+                  disabled={autoRebetOnSpace}
+                  className={`seg-btn ${singleBetClickMode !== '2-click' ? 'active' : ''}`}
+                  onClick={() => onSingleBetClickModeChange && onSingleBetClickModeChange('1-click')}
+                >
+                  1-Click
+                </button>
+                <button
+                  type="button"
+                  disabled={autoRebetOnSpace}
+                  className={`seg-btn ${singleBetClickMode === '2-click' ? 'active' : ''}`}
+                  onClick={() => onSingleBetClickModeChange && onSingleBetClickModeChange('2-click')}
+                >
+                  2-Click
+                </button>
+              </div>
             </div>
 
             <div className={`settings-row ${!autoRebetOnSpace ? 'is-disabled' : ''}`}>
