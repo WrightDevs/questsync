@@ -1,6 +1,0 @@
-{
-  "url": "https://questsync-licensing-portal.vercel.app/api/licenses",
-  "portalUrl": "https://questsync-licensing-portal.vercel.app",
-  "machineLock": true,
-  "graceHours": 24
-}

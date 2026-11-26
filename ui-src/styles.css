@@ -1235,11 +1235,6 @@ kbd {
   color: var(--text-disabled);
 }
 
-.drawer-row.is-disabled {
-  opacity: 0.45;
-  transition: opacity 0.15s ease;
-}
-
 .row-info {
   display: flex;
   flex-direction: column;
