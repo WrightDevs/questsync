@@ -14,15 +14,12 @@ const {
   minStakeForProfile,
   FIND_STAKE_INPUT_JS,
   KEYBOARD_CONTAINER_SELECTOR,
-  UPDATE_DEFAULT_STAKE_SELECTOR,
-  TOGGLE_UPDATE_DEFAULT_STAKE_JS,
   MONITOR_URLS,
   CHECK_BETPAWA_UNAVAILABLE_JS,
   oddsReadCode,
   readFieldCode,
   PLACE_BET_JS,
   CLICK_ANY_CONFIRM_JS,
-  REBET_JS,
   FAST_REBET_CYCLE_JS,
   EXECUTE_ATTACK_CYCLE_JS,
   INSPECT_SINGLE_BET_STATE_JS,
@@ -405,15 +402,6 @@ function syncProfileFromView(i) {
   if (changed) saveProfiles();
 }
 
-/** Return the profit target for a given view based on its loaded URL / profile */
-function targetForView(v, idxHint) {
-  const idx = idxHint !== undefined ? idxHint : views.indexOf(v);
-  const saved = idx >= 0 ? ensurePaneProfile(idx) : { country: currentCountry };
-  const url = getLiveUrl(v);
-  const country = countryFromUrl(url, saved.country || currentCountry);
-  return profitTargets[country] || profitTargets[currentCountry];
-}
-
 /** Push live pane metadata to the React control bar */
 function sendPaneStates() {
   if (!win || win.isDestroyed()) return;
@@ -598,7 +586,6 @@ function clearViews() {
         viewEditableFocus.delete(vid);
         lastStakeByView.delete(vid);
         lastFailed.delete(vid);
-        rebetExtraByView.delete(vid);
         preparedRebetStakes.delete(vid);
       }
     } catch (_) { }
@@ -864,7 +851,6 @@ ipcMain.handle('ui:load', (_e, urlOrOpts, maybeScope) => {
     lastApplied.delete(views[i].webContents.id);
     lastFailed.delete(views[i].webContents.id);
     lastStakeByView.delete(views[i].webContents.id);
-    rebetExtraByView.delete(views[i].webContents.id);
     views[i].webContents.loadURL(loaded).catch(() => { });
     saveProfiles();
     sendPaneStates();
@@ -879,7 +865,6 @@ ipcMain.handle('ui:load', (_e, urlOrOpts, maybeScope) => {
   lastApplied.clear();
   lastFailed.clear();
   lastStakeByView.clear();
-  rebetExtraByView.clear();
   views.forEach((v, i) => {
     const p = ensurePaneProfile(i);
     p.site = nextSite;
@@ -1210,74 +1195,6 @@ ipcMain.handle('ui:get-account-statuses', async () => {
   return statuses;
 });
 
-async function runWidthsVerification() {
-  const widths = [1280, 1600, 1920];
-  const routes = ['software', 'accounts', 'settings'];
-  const report = [];
-
-  for (const w of widths) {
-    if (!win || win.isDestroyed()) break;
-    win.setSize(w, 900);
-    await sleep(400);
-
-    for (const r of routes) {
-      currentAppRoute = `/${r}`;
-      updateViewsVisibility();
-      await win.webContents.executeJavaScript(`
-        window.location.hash = '#/${r}';
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-      `);
-      await sleep(350);
-
-      const metric = await win.webContents.executeJavaScript(`(() => {
-        const docW = document.documentElement.scrollWidth;
-        const winW = window.innerWidth;
-        const nav = document.querySelector('.app-nav-bar');
-        const tb = document.querySelector('.software-toolbar-row');
-
-        const allInteractive = Array.from(document.querySelectorAll('button, input, select, .btn, .seg-btn, .pane-header-box'));
-        const clipped = allInteractive.filter(el => {
-          const r = el.getBoundingClientRect();
-          return r.right > winW + 2;
-        }).map(el => ({
-          tag: el.tagName,
-          class: el.className,
-          text: (el.textContent || el.value || '').trim().slice(0, 30),
-          right: Math.round(el.getBoundingClientRect().right),
-          windowWidth: winW
-        }));
-
-        return {
-          windowWidth: winW,
-          documentScrollWidth: docW,
-          hasHorizontalOverflow: docW > winW,
-          navClipped: nav ? nav.scrollWidth > nav.clientWidth : false,
-          toolbarClipped: tb ? tb.scrollWidth > tb.clientWidth : false,
-          clippedCount: clipped.length,
-          clipped
-        };
-      })()`);
-
-      report.push({ width: w, route: r, ...metric });
-    }
-  }
-
-  // Restore standard 1600px width and /software route
-  if (win && !win.isDestroyed()) {
-    win.setSize(1600, 920);
-    currentAppRoute = '/software';
-    updateViewsVisibility();
-    await win.webContents.executeJavaScript(`
-      window.location.hash = '#/software';
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    `);
-    layout();
-  }
-  return report;
-}
-
-ipcMain.handle('ui:test-verify-widths', () => runWidthsVerification());
-
 // ─── IPC: per-pane & batch site/country switching ──────────────────────────
 
 ipcMain.handle('ui:set-pane-profile', (_e, payload) => {
@@ -1303,7 +1220,6 @@ ipcMain.handle('ui:set-pane-profile', (_e, payload) => {
     lastApplied.delete(v.webContents.id);
     lastFailed.delete(v.webContents.id);
     lastStakeByView.delete(v.webContents.id);
-    rebetExtraByView.delete(v.webContents.id);
     v.webContents.loadURL(nextUrl).catch(() => { });
   }
   saveProfiles();
@@ -1316,7 +1232,6 @@ ipcMain.handle('ui:set-country', (_e, country) => {
   lastApplied.clear();
   lastFailed.clear();
   lastStakeByView.clear();
-  rebetExtraByView.clear();
 
   views.forEach((v, i) => {
     const prof = getPaneProfile(i);
@@ -1932,7 +1847,6 @@ async function setStakeInView(v, stakeSel, text) {
 const lastApplied = new Map();
 const lastFailed = new Map(); // Map<webContentsId, Map<key, number>>
 const lastStakeByView = new Map(); // Map<webContentsId, number>
-const rebetExtraByView = new Map(); // Map<webContentsId, number>
 let applying = false;
 let pendingApply = null; // { onlyChanged: boolean } | null
 let applyTimer = null;
@@ -1988,10 +1902,7 @@ async function applyStakesToViews(cfg, { onlyChanged = false, useMinStake = fals
             console.log(`[QuestSync BalanceCap] Pane ${i + 1}: Required stake (${stake}) > Balance (${balance}). Using full balance: ${effectiveStake}`);
           }
         }
-        const extra = rebetExtraByView.get(v.webContents.id) || 0;
-        text = extra > 0
-          ? formatStakeStr(round2(effectiveStake + extra))
-          : (cfg.whole ? String(effectiveStake) : effectiveStake.toFixed(2));
+        text = cfg.whole ? String(effectiveStake) : effectiveStake.toFixed(2);
       }
 
       const key = `${site}|${useMinStake ? 'min' : effectiveTarget}|${odds}|${text}`;
@@ -2112,7 +2023,6 @@ async function runExclusiveStakeBatch(nextProfitConfig, worker) {
   currentProfitConfig = nextProfitConfig;
   lastApplied.clear();
   lastFailed.clear();
-  rebetExtraByView.clear();
   clearTimeout(applyTimer);
   clearTimeout(followUpTimer);
   pendingApply = null;
@@ -2157,7 +2067,6 @@ ipcMain.handle('ui:set-targets', (_e, targets) => {
   }
   lastApplied.clear();
   lastFailed.clear();
-  rebetExtraByView.clear();
   sendPaneStates();
   if (currentProfitConfig) scheduleApply(80, false);
   return { ...profitTargets };
@@ -2269,7 +2178,6 @@ ipcMain.on('view:match-changed', (e, payload) => {
 ipcMain.on('view:slip-cleared', (e) => {
   lastStakeByView.delete(e.sender.id);
   preparedRebetStakes.delete(e.sender.id);
-  rebetExtraByView.delete(e.sender.id);
 });
 
 // ─── Mirror relay ───────────────────────────────────────────────────────────
@@ -2864,73 +2772,6 @@ ipcMain.handle('ui:trigger-single-bet-spacebar', (_e, sourceLabel) =>
   triggerSingleBetSpacebar(sourceLabel || 'UI Hotkey: Spacebar (Single Bet)')
 );
 
-async function rebetPane(v, i, preparedStake, minStakeNum) {
-  const prof = getPaneProfile(i);
-  const stakeSel = currentProfitConfig?.stakeSel || '';
-  const oddsSel = currentProfitConfig?.oddsSel || '';
-
-  // Fast reactive polling for reopened betslip stake box to mount after Rebet click
-  let curField = null;
-  for (let attempt = 0; attempt < 35; attempt++) {
-    if (!viewReady(v)) return { ok: false, stake: null, odds: null, prof };
-    const found = await v.webContents.executeJavaScript(`(() => {
-      const el = (${FIND_STAKE_INPUT_JS})();
-      if (!el) return { ready: false, val: null };
-      const val = ('value' in el && el.value !== undefined && el.value !== '')
-        ? String(el.value).trim()
-        : String(el.textContent || '').trim();
-      return { ready: true, val };
-    })()`).catch(() => null);
-    if (found && found.ready) {
-      curField = await v.webContents.executeJavaScript(readFieldCode(stakeSel)).catch(() => found.val);
-      break;
-    }
-    await sleep(35);
-  }
-
-  const curNum = parsePositiveStake(curField);
-  const isGh = prof.country === 'gh';
-  let targetStake;
-  if (preparedStake && preparedStake > 0) {
-    targetStake = preparedStake;
-  } else if (curNum && curNum > 0) {
-    targetStake = calculateRebetDecrement(curNum, isGh, minStakeNum);
-  } else {
-    targetStake = calculateRebetDecrement(100, isGh, minStakeNum);
-  }
-
-  const nextText = formatStakeStr(targetStake);
-  const id = v.webContents.id;
-  lastStakeByView.set(id, targetStake);
-  currentSharedStake = nextText;
-
-  // Set stake in view and activate built-in Update Default Stake on keypad
-  let ok = await setStakeInView(v, stakeSel, nextText);
-  if (ok) {
-    await sleep(90);
-    const verify = await v.webContents.executeJavaScript(readFieldCode(stakeSel)).catch(() => null);
-    if (!stakesMatch(verify, nextText)) {
-      ok = await setStakeInView(v, stakeSel, nextText);
-    }
-  }
-
-  // Pre-calculate subsequent decrement in the background for next bet
-  const subsequentStake = calculateRebetDecrement(targetStake, isGh, minStakeNum);
-  preparedRebetStakes.set(id, subsequentStake);
-
-  const odds = await v.webContents.executeJavaScript(oddsReadCode(oddsSel)).catch(() => null);
-  const effectiveTarget = profitTargets[prof.country] || profitTargets[currentCountry];
-
-  return {
-    ok,
-    bumped: ok,
-    stake: nextText,
-    odds,
-    prof,
-    effectiveTarget,
-  };
-}
-
 async function triggerRebet(sourceLabel = 'UI') {
   rebetInFlight++;
   clearTimeout(applyTimer);
@@ -3102,10 +2943,6 @@ async function runPaneAttackLoop(v, i, targetCycles) {
         if (!otherV || otherV.webContents.isDestroyed() || otherV.webContents.id === v.webContents.id) return;
         otherV.webContents.executeJavaScript(FAST_SET_STAKE_JS(stakeToApply)).catch(() => { });
       });
-
-      try {
-        if (win && !win.isDestroyed()) win.webContents.send('ui:stake-synced', currentStake);
-      } catch (_) { }
     }
 
     // Run rapid cycle (Place Bet -> Confirm -> Rebet -> Betslip ready)
