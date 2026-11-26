@@ -111,12 +111,9 @@ const options = { mirror: true, typing: true, windowSync: true, autoAlign: true,
 let savedOddsSel = '';
 let savedStakeSel = '';
 let hotkeysEnabled = true;
-let autoCashoutTimer = null;
 let cashoutBusy = false;
 const cashoutConfig = {
   autoNavOpenBets: true,
-  pollMs: 1200,
-  disarmOnHit: false,
 };
 let zoom = 0.65;
 
@@ -793,10 +790,6 @@ function createWindow() {
   win.on('close', () => {
     saveProfiles();
     saveUserSettings();
-    if (autoCashoutTimer) {
-      clearInterval(autoCashoutTimer);
-      autoCashoutTimer = null;
-    }
     destroyMonitorView();
     destroyMonitorWin();
   });
@@ -3032,14 +3025,6 @@ async function triggerCashoutAll(sourceLabel = 'Click') {
           : `No open cashout tickets ready [${sourceLabel}]`,
       });
     }
-    if (total > 0 && cashoutConfig.disarmOnHit && autoCashoutTimer) {
-      clearInterval(autoCashoutTimer);
-      autoCashoutTimer = null;
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('auto-cashout-state', false);
-        win.webContents.send('acc-status', { msg: `Auto-Cashout confirmed ${total} ticket(s) and disarmed` });
-      }
-    }
     return { total };
   } finally {
     cashoutBusy = false;
@@ -3053,58 +3038,12 @@ ipcMain.handle('ui:set-hotkeys', (_e, enabled) => {
   return hotkeysEnabled;
 });
 
-ipcMain.handle('ui:get-cashout-config', () => ({ ...cashoutConfig }));
-
 ipcMain.handle('ui:set-cashout-config', (_e, patch) => {
   if (patch && typeof patch === 'object') {
     if (typeof patch.autoNavOpenBets === 'boolean') cashoutConfig.autoNavOpenBets = patch.autoNavOpenBets;
-    if (typeof patch.disarmOnHit === 'boolean') cashoutConfig.disarmOnHit = patch.disarmOnHit;
-    if (patch.pollMs !== undefined) {
-      const ms = parseInt(patch.pollMs, 10);
-      if (!Number.isNaN(ms)) cashoutConfig.pollMs = Math.min(5000, Math.max(600, ms));
-    }
     saveUserSettings();
   }
   return { ...cashoutConfig };
-});
-
-ipcMain.handle('ui:set-auto-cashout', async (_e, enabled) => {
-  if (autoCashoutTimer) {
-    clearInterval(autoCashoutTimer);
-    autoCashoutTimer = null;
-  }
-  const on = !!enabled;
-  if (on) {
-    const first = await triggerCashoutAll('Auto-Cashout Armed');
-    const keepArmed = !(first.total > 0 && cashoutConfig.disarmOnHit);
-    if (keepArmed) {
-      autoCashoutTimer = setInterval(async () => {
-        if (!views.length || cashoutBusy) return;
-        cashoutBusy = true;
-        try {
-          const results = await Promise.all(views.map((v) => cashoutPane(v).catch(() => 0)));
-          const total = results.reduce((s, n) => s + (n || 0), 0);
-          if (total > 0 && win && !win.isDestroyed()) {
-            win.webContents.send('acc-status', { msg: `Auto-Cashout confirmed ${total} ticket(s)` });
-            if (cashoutConfig.disarmOnHit && autoCashoutTimer) {
-              clearInterval(autoCashoutTimer);
-              autoCashoutTimer = null;
-              win.webContents.send('auto-cashout-state', false);
-            }
-          }
-        } finally {
-          cashoutBusy = false;
-        }
-      }, cashoutConfig.pollMs);
-    } else {
-      if (win && !win.isDestroyed()) win.webContents.send('auto-cashout-state', false);
-      return false;
-    }
-  } else if (win && !win.isDestroyed()) {
-    win.webContents.send('acc-status', { msg: 'Auto-Cashout disarmed' });
-  }
-  if (win && !win.isDestroyed()) win.webContents.send('auto-cashout-state', on);
-  return on;
 });
 
 // ─── License check ──────────────────────────────────────────────────────────
@@ -3172,10 +3111,6 @@ app.whenReady().then(async () => {
 });
 app.on('window-all-closed', async () => {
   await flushAllCookies();
-  if (autoCashoutTimer) {
-    clearInterval(autoCashoutTimer);
-    autoCashoutTimer = null;
-  }
   destroyMonitorView();
   destroyMonitorWin();
   app.quit();

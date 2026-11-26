@@ -74,8 +74,6 @@ export default function SettingsPage({
   onToggleBetano,
 
   // Cashout
-  autoCashout = false,
-  onToggleAutoCashout,
   cashoutConfig = {},
   onUpdateCashoutConfig,
 
@@ -102,8 +100,6 @@ export default function SettingsPage({
   const bMobileUA = betanoConfig?.mobileUA !== false;
 
   const cAutoNav = cashoutConfig?.autoNavOpenBets !== false;
-  const cDisarm = !!cashoutConfig?.disarmOnHit;
-  const cPoll = cashoutConfig?.pollMs ?? 1200;
 
   const filteredLogs = logs.filter((l) =>
     logFilter ? l.text?.toLowerCase().includes(logFilter.toLowerCase()) : true
@@ -705,36 +701,21 @@ export default function SettingsPage({
           </div>
         </div>
 
-        {/* ─── 5. Cashout Automation ─── */}
+        {/* ─── 5. Cashout Settings ─── */}
         <div className="content-card settings-card">
           <div className="card-header">
             <div className="card-title-group">
               <Shield size={14} className="card-title-icon" />
-              <span className="card-title">Cashout Automation</span>
+              <span className="card-title">Cashout Settings</span>
             </div>
-            <span className="card-subtitle">Continuous open bets polling and rapid ticket cashing</span>
+            <span className="card-subtitle">Open Bets navigation for Cashout All (Alt+C / F9)</span>
           </div>
 
           <div className="settings-rows-list">
             <div className="settings-row">
               <div className="row-info">
-                <span className="row-title">Auto-Cashout Engine</span>
-                <span className="row-desc">Continuously scan Open Bets and cash out winning tickets</span>
-              </div>
-              <button
-                type="button"
-                className={`toggle-switch ${autoCashout ? 'is-on alert' : ''}`}
-                onClick={onToggleAutoCashout}
-              >
-                <span className="indicator" />
-                <span>{autoCashout ? 'Scanning Active' : 'Disabled'}</span>
-              </button>
-            </div>
-
-            <div className="settings-row">
-              <div className="row-info">
                 <span className="row-title">Auto-Open Bets Tab</span>
-                <span className="row-desc">Navigate directly to Open Bets view when cashout starts</span>
+                <span className="row-desc">Navigate directly to Open Bets view when Cashout All runs</span>
               </div>
               <button
                 type="button"
@@ -744,40 +725,6 @@ export default function SettingsPage({
                 <span className="indicator" />
                 <span>{cAutoNav ? 'Enabled' : 'Disabled'}</span>
               </button>
-            </div>
-
-            <div className="settings-row">
-              <div className="row-info">
-                <span className="row-title">Disarm On Cashout</span>
-                <span className="row-desc">Stop auto-cashout loop immediately upon successful cashout</span>
-              </div>
-              <button
-                type="button"
-                className={`toggle-switch ${cDisarm ? 'is-on warn' : ''}`}
-                onClick={() => onUpdateCashoutConfig({ disarmOnHit: !cDisarm })}
-              >
-                <span className="indicator" />
-                <span>{cDisarm ? 'Enabled' : 'Keep Scanning'}</span>
-              </button>
-            </div>
-
-            <div className="settings-row">
-              <div className="row-info">
-                <span className="row-title">Poll Frequency</span>
-                <span className="row-desc">Interval between tickets scan cycles (milliseconds)</span>
-              </div>
-              <div className="input-with-unit">
-                <input
-                  className="inp inp-num"
-                  type="number"
-                  min={600}
-                  max={5000}
-                  step={200}
-                  value={cPoll}
-                  onChange={(e) => onUpdateCashoutConfig({ pollMs: parseInt(e.target.value, 10) || 1200 })}
-                />
-                <span className="unit-label">ms</span>
-              </div>
             </div>
           </div>
         </div>

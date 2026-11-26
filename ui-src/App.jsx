@@ -33,8 +33,6 @@ const DEFAULT_BETANO_CFG = {
 
 const DEFAULT_CASHOUT_CFG = {
   autoNavOpenBets: true,
-  pollMs: 1200,
-  disarmOnHit: false,
 };
 
 function getInitialRoute() {
@@ -121,7 +119,6 @@ export default function App() {
     open: false,
   }));
   const [cashoutConfig, setCashoutConfig] = useState(() => savedJson('cashoutCfg', DEFAULT_CASHOUT_CFG));
-  const [autoCashout, setAutoCashout] = useState(false);
   const [balanceAwareStake, setBalanceAwareStake] = useState(() => saved('balanceAware', '1') !== '0');
 
   // Toolbar & metrics state
@@ -438,7 +435,6 @@ export default function App() {
         });
         setStatusMsg(`Stake synced across panes: ${stk}`);
       }),
-      window.api.onAutoCashoutState && window.api.onAutoCashoutState((on) => setAutoCashout(!!on)),
       window.api.onAutoRebetState && window.api.onAutoRebetState((state) => {
         if (!state || typeof state !== 'object') return;
         setAutoRebetState(state);
@@ -785,11 +781,6 @@ export default function App() {
     );
   };
 
-  const handleToggleAutoCashout = async () => {
-    const next = !autoCashout;
-    await window.api.setAutoCashout(next);
-  };
-
   const handleToggleBalanceAwareStake = async () => {
     const next = !balanceAwareStake;
     setBalanceAwareStake(next);
@@ -1061,8 +1052,6 @@ export default function App() {
           onZoomBetano={handleZoomBetano}
           betanoOpen={betanoOpen}
           onToggleBetano={handleToggleBetano}
-          autoCashout={autoCashout}
-          onToggleAutoCashout={handleToggleAutoCashout}
           cashoutConfig={cashoutConfig}
           onUpdateCashoutConfig={handleUpdateCashoutConfig}
           logs={logs}
