@@ -27,6 +27,7 @@ export default function SoftwareToolbar({
   autoUpdate = false,
   onToggleAutoUpdate,
   onSyncNow,
+  onMinStake,
   rebetActive = false,
   autoRebetState = { running: false, cycle: 0, target: 1 },
   autoRebetOnSpace = true,
@@ -147,6 +148,15 @@ export default function SoftwareToolbar({
           >
             <RotateCw size={12} />
             <span>Sync</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-action"
+            onClick={onMinStake}
+            title="Apply minimum stake across all panes (SB NG: ₦10, SB GH: GH₵0.1, FB: ₦1)"
+          >
+            <span>Min Stake</span>
           </button>
         </div>
 

@@ -1046,6 +1046,7 @@ export default function App() {
           onToggleBalanceAwareStake={handleToggleBalanceAwareStake}
           whole={whole}
           onToggleWhole={handleToggleWhole}
+          onMinStake={handleMinStake}
           hotkeysEnabled={hotkeysEnabled}
           onToggleHotkeys={handleToggleHotkeys}
           oddsSel={oddsSel}
