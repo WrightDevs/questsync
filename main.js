@@ -25,6 +25,7 @@ const {
   SINGLE_BET_CONFIRM_ONLY_JS,
   FAST_SET_STAKE_JS,
   NAV_OPEN_BETS_JS,
+  INSPECT_OPEN_BETS_STATE_JS,
   PREPARE_CASHOUT_CLICK_JS,
   FIND_CASHOUT_CONFIRM_JS,
   CLICK_CASHOUT_CONFIRM_JS,
@@ -2926,47 +2927,133 @@ function waitForFinishLoad(v, timeoutMs = 4000) {
   });
 }
 
+async function waitForOpenBetsTicketsReady(v, maxWaitMs = 4200) {
+  const started = Date.now();
+  let emptyStreak = 0;
+  while (Date.now() - started < maxWaitMs) {
+    if (!v || v.webContents.isDestroyed()) return { ready: false, state: 'destroyed' };
+    if (v.webContents.isLoadingMainFrame()) {
+      await sleep(140);
+      continue;
+    }
+    const st = await withTimeout(v.webContents.executeJavaScript(INSPECT_OPEN_BETS_STATE_JS).catch(() => null), 1500, null);
+    if (st && (st.state === 'confirm-open' || st.state === 'has-tickets')) {
+      return { ready: true, state: st.state };
+    }
+    if (st && st.state === 'logged-out') {
+      return { ready: false, state: 'logged-out' };
+    }
+    if (st && st.state === 'empty') {
+      emptyStreak++;
+      if (emptyStreak >= 3 && Date.now() - started >= 500) {
+        return { ready: true, state: 'empty' };
+      }
+    } else {
+      emptyStreak = 0;
+    }
+    await sleep(130);
+  }
+  return { ready: true, state: 'timeout' };
+}
+
 async function ensureOpenBetsInView(v) {
-  if (!viewReady(v)) return false;
+  if (!v || v.webContents.isDestroyed()) return false;
+  if (v.webContents.isLoadingMainFrame()) {
+    await waitForFinishLoad(v, 3500);
+  }
   const nav = await withTimeout(v.webContents.executeJavaScript(NAV_OPEN_BETS_JS).catch(() => null), 2500, null);
   if (!nav) return false;
-  if (nav.status === 'ready') return true;
-
-  if (nav.status === 'navigated') {
-    for (let i = 0; i < 10; i++) {
-      await sleep(200);
-      if (!viewReady(v)) continue;
-      const check = await withTimeout(v.webContents.executeJavaScript(NAV_OPEN_BETS_JS).catch(() => null), 1500, null);
-      if (check && check.status === 'ready') return true;
-    }
-    await sleep(150);
+  if (nav.status === 'ready') {
+    await waitForOpenBetsTicketsReady(v, 2200);
     return true;
   }
 
-  if (nav.status === 'need-url') {
-    const idx = views.indexOf(v);
-    const prof = idx >= 0 ? getPaneProfile(idx) : { site: 'sportybet', country: currentCountry };
-    const site = nav.site || siteFromUrl(nav.href, prof.site);
-    const country = nav.country || countryFromUrl(nav.href, prof.country);
+  let latestNav = nav;
+  if (nav.status === 'navigated') {
+    let becameReady = false;
+    for (let i = 0; i < 6; i++) {
+      await sleep(180);
+      if (!viewReady(v)) continue;
+      const check = await withTimeout(v.webContents.executeJavaScript(NAV_OPEN_BETS_JS).catch(() => null), 1500, null);
+      if (check) latestNav = check;
+      if (check && check.status === 'ready') {
+        becameReady = true;
+        break;
+      }
+    }
+    if (becameReady) {
+      await waitForOpenBetsTicketsReady(v, 3600);
+      return true;
+    }
+  }
+
+  // Fallback for 'need-url' OR if bottom-nav click did not navigate onto /open_bets (e.g. blocked by betslip overlay)
+  const idx = views.indexOf(v);
+  const prof = idx >= 0 ? getPaneProfile(idx) : { site: 'sportybet', country: currentCountry };
+  const curHref = latestNav?.href || nav.href || v.webContents.getURL();
+  const site = latestNav?.site || nav.site || siteFromUrl(curHref, prof.site);
+  const country = latestNav?.country || nav.country || countryFromUrl(curHref, prof.country);
+  if (site) {
     const targetUrl = buildOpenBetsUrl(site, country);
-    const loadDone = waitForFinishLoad(v, 4500);
+    const loadDone = waitForFinishLoad(v, 5000);
     v.webContents.loadURL(targetUrl).catch(() => { });
     await loadDone;
-    await sleep(350);
-    // Ensure inner "Open Bets" sub-tab if needed
+    await sleep(250);
     await withTimeout(v.webContents.executeJavaScript(NAV_OPEN_BETS_JS).catch(() => null), 1500, null);
-    return true;
+    await waitForOpenBetsTicketsReady(v, 4200);
   }
 
   return true;
 }
 
-async function cashoutPane(v) {
-  if (!viewReady(v)) return 0;
+async function confirmOpenCashoutSheet(v, fallbackX = 0, fallbackY = 0) {
+  let cRes = await withTimeout(v.webContents.executeJavaScript(CLICK_CASHOUT_CONFIRM_JS).catch(() => null), 2000, null);
+  if (cRes && cRes.clicked && cRes.dismissed) return true;
 
+  await sleep(160);
+  let stillOpen = await withTimeout(v.webContents.executeJavaScript(FIND_CASHOUT_CONFIRM_JS).catch(() => null), 1200, null);
+  if (!stillOpen || !stillOpen.found) return true;
+
+  const tapX = stillOpen.x || (cRes && cRes.x) || fallbackX;
+  const tapY = stillOpen.y || (cRes && cRes.y) || fallbackY;
+  if (tapX && tapY) {
+    await sendTrustedTap(v, tapX, tapY);
+    await sleep(320);
+    stillOpen = await withTimeout(v.webContents.executeJavaScript(FIND_CASHOUT_CONFIRM_JS).catch(() => null), 1200, null);
+    if (!stillOpen || !stillOpen.found) return true;
+  }
+
+  // Final retry in case the confirm value updated cleanly mid-sheet (e.g. VAR / odds shift)
+  cRes = await withTimeout(v.webContents.executeJavaScript(CLICK_CASHOUT_CONFIRM_JS).catch(() => null), 2000, null);
+  if (cRes && cRes.clicked && cRes.dismissed) return true;
+  const retryX = (cRes && cRes.x) || stillOpen.x || fallbackX;
+  const retryY = (cRes && cRes.y) || stillOpen.y || fallbackY;
+  if (retryX && retryY) await sendTrustedTap(v, retryX, retryY);
+  await sleep(360);
+  stillOpen = await withTimeout(v.webContents.executeJavaScript(FIND_CASHOUT_CONFIRM_JS).catch(() => null), 1200, null);
+  return !stillOpen || !stillOpen.found;
+}
+
+async function cashoutPane(v, paneIdx = 0) {
+  const paneTag = `Pane ${paneIdx + 1}`;
+  if (!viewReady(v)) {
+    console.log(`[Cashout] ${paneTag}: Skipped (pane not ready)`);
+    return 0;
+  }
+
+  let readyInfo = { ready: true, state: 'unknown' };
   if (cashoutConfig.autoNavOpenBets) {
     const ok = await ensureOpenBetsInView(v);
-    if (!ok) return 0;
+    if (!ok) {
+      console.log(`[Cashout] ${paneTag}: Skipped (open bets view unavailable)`);
+      return 0;
+    }
+  } else {
+    readyInfo = await waitForOpenBetsTicketsReady(v, 1800);
+    if (!readyInfo.ready) {
+      console.log(`[Cashout] ${paneTag}: Skipped (${readyInfo.state || 'not ready'})`);
+      return 0;
+    }
   }
 
   let confirmedCount = 0;
@@ -2974,49 +3061,58 @@ async function cashoutPane(v) {
 
   for (let pass = 0; pass < MAX_TICKETS; pass++) {
     if (!viewReady(v)) break;
-    const step = await withTimeout(v.webContents.executeJavaScript(PREPARE_CASHOUT_CLICK_JS).catch(() => null), 2000, null);
+    let step = await withTimeout(v.webContents.executeJavaScript(PREPARE_CASHOUT_CLICK_JS).catch(() => null), 2500, null);
+    if ((!step || step.mode === 'none') && pass === 0) {
+      await sleep(250);
+      step = await withTimeout(v.webContents.executeJavaScript(PREPARE_CASHOUT_CLICK_JS).catch(() => null), 2500, null);
+    }
     if (!step || step.mode === 'none') break;
 
     if (step.mode === 'confirm-only') {
-      const c1 = await withTimeout(v.webContents.executeJavaScript(CLICK_CASHOUT_CONFIRM_JS).catch(() => null), 1500, null);
-      await sleep(180);
-      const stillOpen = await withTimeout(v.webContents.executeJavaScript(FIND_CASHOUT_CONFIRM_JS).catch(() => null), 1000, null);
-      if (stillOpen && stillOpen.found && c1 && c1.clicked) {
-        await sendTrustedTap(v, stillOpen.x, stillOpen.y);
-        await sleep(180);
-      }
+      const ok = await confirmOpenCashoutSheet(v, step.x, step.y);
+      if (!ok) break;
       confirmedCount++;
+      await sleep(320);
       continue;
     }
 
-    // step.mode === 'clicked-ticket': wait for confirmation sheet (.m-cashout / modal)
-    let confirmInfo = null;
-    for (let tick = 0; tick < 10; tick++) {
-      await sleep(110);
-      confirmInfo = await withTimeout(v.webContents.executeJavaScript(FIND_CASHOUT_CONFIRM_JS).catch(() => null), 1200, null);
-      if (confirmInfo && confirmInfo.found) break;
-      // After ~220ms if DOM .click() didn't trigger modal, send a trusted mouse tap once
-      if (tick === 1 && step.x && step.y) {
-        await sendTrustedTap(v, step.x, step.y);
+    // step.mode === 'clicked-ticket': use instant MutationObserver match if available, else poll FIND_CASHOUT_CONFIRM_JS
+    let confirmInfo = step.confirmReady
+      ? { found: true, clickNow: true, x: step.confirmX, y: step.confirmY, label: step.confirmLabel }
+      : null;
+
+    if (!confirmInfo) {
+      for (let tick = 0; tick < 16; tick++) {
+        await sleep(110);
+        confirmInfo = await withTimeout(v.webContents.executeJavaScript(FIND_CASHOUT_CONFIRM_JS).catch(() => null), 1200, null);
+        if (confirmInfo && confirmInfo.found) break;
+        // Only send a fallback trusted tap if neither Confirm button nor modal overlay has appeared yet
+        if (tick === 2 && (!confirmInfo || !confirmInfo.overlayOpen) && step.x && step.y) {
+          await sendTrustedTap(v, step.x, step.y);
+        }
       }
     }
 
     if (confirmInfo && confirmInfo.found) {
-      const cRes = await withTimeout(v.webContents.executeJavaScript(CLICK_CASHOUT_CONFIRM_JS).catch(() => null), 1500, null);
-      await sleep(200);
-      const stillOpen = await withTimeout(v.webContents.executeJavaScript(FIND_CASHOUT_CONFIRM_JS).catch(() => null), 1000, null);
-      if (stillOpen && stillOpen.found) {
-        await sendTrustedTap(v, (cRes && cRes.x) || stillOpen.x, (cRes && cRes.y) || stillOpen.y);
-        await sleep(220);
+      const ok = await confirmOpenCashoutSheet(v, confirmInfo.x || step.x, confirmInfo.y || step.y);
+      if (!ok) {
+        console.warn(`[Cashout] ${paneTag}: Clicked ticket (${step.label}), but confirm did not dismiss`);
+        break;
       }
       confirmedCount++;
-      await sleep(200);
+      await sleep(320);
     } else {
       // No confirm dialog popped up (could be suspended or blocked); stop looping this pane
+      console.log(`[Cashout] ${paneTag}: Cashout clicked (${step.label}) but no confirm button appeared`);
       break;
     }
   }
 
+  if (confirmedCount > 0) {
+    console.log(`[Cashout] ${paneTag}: Confirmed ${confirmedCount} ticket(s)`);
+  } else {
+    console.log(`[Cashout] ${paneTag}: Skipped (no open cashout tickets ready)`);
+  }
   return confirmedCount;
 }
 
@@ -3024,8 +3120,9 @@ async function triggerCashoutAll(sourceLabel = 'Click') {
   if (cashoutBusy) return { total: 0, busy: true };
   cashoutBusy = true;
   try {
-    const results = await Promise.all(views.map((v) => cashoutPane(v).catch(() => 0)));
+    const results = await Promise.all(views.map((v, idx) => cashoutPane(v, idx).catch(() => 0)));
     const total = results.reduce((s, n) => s + (n || 0), 0);
+    console.log(`[Cashout] ${sourceLabel}: ${total > 0 ? `Confirmed ${total} ticket(s)` : 'No open cashout tickets ready'}`);
     if (win && !win.isDestroyed()) {
       win.webContents.send('acc-status', {
         msg: total > 0

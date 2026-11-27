@@ -1941,7 +1941,7 @@ const NAV_OPEN_BETS_JS = `
           if (!isVis(el) || el.closest('.m-bottom-fixed, [class*="bottom-fixed" i]')) return false;
           if (el.querySelector('li, [role="tab"], button')) return false;
           const t = norm(el);
-          return t === 'open bets' || t === 'open bet';
+          return /^open\\s*bets?(?:\\s*\\(?\\d+\\)?)?$/.test(t);
         });
       if (tabs.length > 0) {
         const tEl = tabs[0];
@@ -1955,18 +1955,28 @@ const NAV_OPEN_BETS_JS = `
       return { status: 'ready', via: 'already-open-bets', href: location.href };
     }
 
-    const navScope = document.querySelector('.m-bottom-fixed, [class*="bottom-fixed" i], [class*="bottom-nav" i]') || document;
-    const navLabels = Array.from(navScope.querySelectorAll('span.label, .m-btn-button, a, button, [role="tab"], [role="button"], li, div')).filter((el) => {
-      if (!isVis(el)) return false;
-      const t = norm(el);
-      return t === 'open bets' || t === 'open bet' || /^open\\s*bets(\\s*\\(?\\d+\\)?)?$/.test(t);
-    });
+    const navContainers = Array.from(document.querySelectorAll('.m-bottom-fixed, [class*="bottom-fixed" i], [class*="bottom-nav" i]'));
+    const navPools = navContainers.length > 0 ? navContainers : [document];
+    const navLabels = navPools.flatMap((scope) =>
+      Array.from(scope.querySelectorAll('span.label, .m-btn-button, a, button, [role="tab"], [role="button"], li, div')).filter((el) => {
+        if (!isVis(el)) return false;
+        const t = norm(el);
+        return /^open\\s*bets?(?:\\s*\\(?\\d+\\)?)?$/.test(t);
+      })
+    );
 
     if (navLabels.length > 0) {
       const labelEl = navLabels[navLabels.length - 1];
       const target = labelEl.closest('.m-btn-button, a, button, [role="tab"], [role="button"]') || labelEl;
-      try { target.click(); } catch (_) {}
-      return { status: 'navigated', via: 'bottom-nav', href: location.href };
+      const tr = target.getBoundingClientRect();
+      const tx = Math.max(1, Math.round(tr.left + tr.width / 2));
+      const ty = Math.max(1, Math.round(tr.top + tr.height / 2));
+      const topEl = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(tx, ty) : target;
+      const clickable = !topEl || topEl === target || target.contains(topEl) || topEl.contains(target);
+      if (clickable) {
+        try { target.click(); } catch (_) {}
+        return { status: 'navigated', via: 'bottom-nav', href: location.href };
+      }
     }
 
     const isFootball = /football\\.com/i.test(location.hostname || '');
@@ -1982,145 +1992,391 @@ const NAV_OPEN_BETS_JS = `
   })()
 `;
 
-const CASHOUT_CONFIRM_ROOT_SEL = '.m-cashout, [data-op*="cashout" i][role="dialog"], [data-op*="confirm" i], [class*="cashout-dialog" i], [class*="cashout-confirm" i], [role="dialog"], .es-dialog, .drawer__content, .bottom-panel-drawer, [class*="confirm" i], [class*="dialog" i], [class*="modal" i], [class*="popup" i]';
+const CASHOUT_CONFIRM_ROOT_SEL = '.m-cashout, .m-pop, .m-pop-box, .af-dialog, .m-dialog, .es-dialog, .drawer__content, .bottom-panel-drawer, [role="dialog"], [data-op*="cashout" i], [data-op*="confirm" i], [class*="cashout-dialog" i], [class*="cashout-confirm" i], [class*="cashout-pop" i], [class*="confirm" i], [class*="dialog" i], [class*="modal" i], [class*="popup" i], [class*="sheet" i], [class*="drawer" i]';
 
-const PREPARE_CASHOUT_CLICK_JS = `
-  (() => {
-    const norm = (el) => (el?.innerText || el?.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-    const isVis = (el) => {
-      if (!el || el.disabled) return false;
-      if (el.closest('[disabled], [aria-disabled="true"], .is-disabled, .disabled')) return false;
-      const r = el.getBoundingClientRect();
-      const st = window.getComputedStyle(el);
-      return r.width > 20 && r.height > 16 && st.visibility !== 'hidden' && st.display !== 'none' && st.pointerEvents !== 'none' && st.opacity !== '0';
-    };
-
-    const isConfirmBtnText = (ct) => {
-      if (!ct || ct.length > 44 || ct.includes('?')) return false;
-      if (/\\b(cancel|close|back|partial|auto[\\s-]*cash|rule|how to|what is|learn|no)\\b/i.test(ct)) return false;
-      return ct === 'confirm' || ct === 'confirm cashout' || ct === 'confirm cash out' ||
-        ct === 'cashout' || ct === 'cash out' || /^confirm\\b/i.test(ct) || /^cash\\s*out\\b/i.test(ct);
-    };
-
-    const openDialogs = Array.from(document.querySelectorAll(${JSON.stringify(CASHOUT_CONFIRM_ROOT_SEL)})).filter(isVis);
-    for (const dlg of openDialogs) {
-      const cBtns = Array.from(dlg.querySelectorAll('button, [role="button"], .m-btn, .af-button, [data-op*="confirm" i], [data-op*="cashout" i]')).filter((cb) => {
-        if (!isVis(cb)) return false;
-        if (cb.tagName !== 'BUTTON' && cb.querySelector('button, [role="button"]')) return false;
-        return isConfirmBtnText(norm(cb));
-      });
-      if (cBtns.length > 0) {
-        const cb = cBtns[cBtns.length - 1];
-        const r = cb.getBoundingClientRect();
-        return { mode: 'confirm-only', x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), label: norm(cb) };
-      }
+const CASHOUT_DOM_HELPERS = `
+  const norm = (el) => (el?.innerText || el?.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+  const isVis = (el) => {
+    if (!el || el.disabled) return false;
+    if (el.closest?.('[disabled], [aria-disabled="true"], .is-disabled, .disabled, .af-button--disabled, .m-btn--disabled')) return false;
+    const r = el.getBoundingClientRect();
+    const st = window.getComputedStyle(el);
+    return r.width > 20 && r.height > 16 && st.visibility !== 'hidden' && st.display !== 'none' && st.pointerEvents !== 'none' && parseFloat(st.opacity || '1') > 0.05;
+  };
+  const isRootNotHidden = (el) => {
+    if (!el) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none' && parseFloat(st.opacity || '1') > 0.05;
+  };
+  const isTopMost = (el) => {
+    const r = el.getBoundingClientRect();
+    const vw = window.innerWidth || document.documentElement?.clientWidth || 1280;
+    const vh = window.innerHeight || document.documentElement?.clientHeight || 800;
+    const cx = Math.max(1, Math.min(vw - 2, Math.round(r.left + r.width / 2)));
+    const cy = Math.max(1, Math.min(vh - 2, Math.round(r.top + r.height / 2)));
+    if (typeof document.elementFromPoint !== 'function') return { top: true, x: cx, y: cy };
+    const hit = document.elementFromPoint(cx, cy);
+    const top = !hit || hit === el || el.contains(hit) || hit.contains(el);
+    return { top, x: cx, y: cy };
+  };
+  const dispatchCashoutClick = (el) => {
+    if (!el) return null;
+    try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); } catch (_) {
+      try { el.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (_) {}
     }
+    const r = el.getBoundingClientRect();
+    const vw = window.innerWidth || document.documentElement?.clientWidth || 1280;
+    const vh = window.innerHeight || document.documentElement?.clientHeight || 800;
+    const cx = Math.max(1, Math.min(vw - 2, Math.round(r.left + r.width / 2)));
+    const cy = Math.max(1, Math.min(vh - 2, Math.round(r.top + r.height / 2)));
+    const evInit = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0, buttons: 1 };
+    const tapHost = el.matches?.('[data-op], .af-button, .m-btn, .es-button, button, [role="button"]')
+      ? el
+      : (el.closest?.('[data-op], .af-button, .m-btn, .es-button, button, [role="button"], [class*="confirm" i], [class*="cashout" i]') || el);
+    const safeTap = tapHost?.__safe_tap_state__ || el?.__safe_tap_state__;
+    if (safeTap && safeTap.config && typeof safeTap.config.onTap === 'function') {
+      try { safeTap.config.onTap(new MouseEvent('click', evInit)); } catch (_) {}
+    }
+    try {
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...evInit, pointerType: 'touch', isPrimary: true }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...evInit, pointerType: 'touch', isPrimary: true }));
+    } catch (_) {}
+    try {
+      el.dispatchEvent(new MouseEvent('mousedown', evInit));
+      el.dispatchEvent(new MouseEvent('mouseup', evInit));
+    } catch (_) {}
+    try { el.click(); } catch (_) {}
+    return { x: cx, y: cy };
+  };
+  const CONFIRM_BTN_RE = /^confirm(?:\\s+(?:cash\\s*out|cashout|now|(?:[a-z]{1,4}|₦|gh₵|₵|\\$)?\\s*[\\d,.]+))?$/i;
+  const BAD_BTN_WORDS_RE = /\\b(cancel|close|back|partial|auto[\\s-]*cash|rule|how to|what is|learn|no|deposit|recharge|log\\s*in|sign\\s*in|register|open bets|history|detail|terms|faq|guide|unavailable|suspend(?:ed|ing)?|locked|disabl(?:ed|ing))\\b/i;
+  const BETSLIP_ANCESTOR_SEL = '[data-op*="betslip" i], .m-betslip, .m-fast-betslip, .m-bet-slip, #betslip';
+  const BTN_NORMALIZE_SEL = 'button, [role="button"], .m-btn, .af-button, .es-button, [class*="btn" i], [class*="button" i], [data-op*="confirm" i], [data-op*="cashout" i], [class*="confirm" i]';
+  const normalizeClickable = (el) => (el?.matches?.(BTN_NORMALIZE_SEL) ? el : (el?.closest?.(BTN_NORMALIZE_SEL) || el));
 
+  const isConfirmCandidate = (cb, allowCashoutLabelInModal = false) => {
+    if (!cb || !isVis(cb)) return false;
+    if (cb.closest?.(BETSLIP_ANCESTOR_SEL)) return false;
+    if (cb.closest?.('header, nav, .m-openbet-header, [class*="openbet-header" i], [class*="history" i], [class*="help" i], [class*="faq" i], [class*="guide" i]')) return false;
+    if (cb.tagName !== 'BUTTON' && cb.querySelector?.('button, [role="button"]')) return false;
+    const ct = norm(cb);
+    if (!ct || ct.length > 48 || ct.includes('?')) return false;
+    if (BAD_BTN_WORDS_RE.test(ct)) return false;
+    if (CONFIRM_BTN_RE.test(ct) || ct.startsWith('confirm cash')) return true;
+    if (allowCashoutLabelInModal && (ct === 'cashout' || ct === 'cash out' || /^cash\\s*out\\b/i.test(ct) || /^cashout\\b/i.test(ct))) {
+      return isTopMost(cb).top;
+    }
+    return false;
+  };
+
+  const hasModalCues = (root) => {
+    if (!root) return false;
+    const cls = String(root.className || '').toLowerCase();
+    const role = String(root.getAttribute?.('role') || '').toLowerCase();
+    if (role === 'dialog' || /dialog|modal|popup|drawer|sheet|m-pop|m-cashout/.test(cls)) return true;
+    const txt = norm(root);
+    if (txt.includes('full cashout') || txt.includes('cashout now') || txt.includes('confirm')) return true;
+    return false;
+  };
+
+  const pickBestButton = (list) => {
+    if (!list || list.length === 0) return null;
+    const uniq = Array.from(new Set(list));
+    const topMatches = uniq.filter((b) => isTopMost(b).top);
+    const pool = topMatches.length > 0 ? topMatches : uniq;
+    return pool[pool.length - 1];
+  };
+
+  const findConfirmCashoutBtn = () => {
+    // 1. Exact SportyBet Open-Bets cashout confirm button first (same pattern as betslip-confirm lookup)
+    const exactConfirm = Array.from(document.querySelectorAll(
+      'button[data-op="open_bets__cashout_confirm"], [data-op="open_bets__cashout_confirm"], button[data-op="cashout-confirm"], [data-op*="cashout_confirm" i], [data-op*="cashout-confirm" i]'
+    )).filter((cb) => isVis(cb) && !cb.closest?.(BETSLIP_ANCESTOR_SEL) && !BAD_BTN_WORDS_RE.test(norm(cb)));
+    if (exactConfirm.length > 0) return pickBestButton(exactConfirm);
+
+    // 2. Global interactive search for explicit "Confirm ..." buttons ("Confirm NGN 9.77", "Confirm GHS 0.02", "Confirm Cashout")
+    const primaryMatches = [];
+    const globalEls = Array.from(document.querySelectorAll(
+      'button, [role="button"], .m-btn, .af-button, .es-button, [class*="btn" i], [class*="button" i], [data-op*="confirm" i], [data-op*="cashout" i], [class*="confirm" i]'
+    ));
+    for (const rawEl of globalEls) {
+      const cb = normalizeClickable(rawEl);
+      if (isConfirmCandidate(cb, false)) primaryMatches.push(cb);
+    }
+    if (primaryMatches.length > 0) return pickBestButton(primaryMatches);
+
+    // 3. Fallback leaf scan if CTA uses custom non-btn classes
+    const leafMatches = [];
+    for (const rawEl of Array.from(document.querySelectorAll('div, span, a'))) {
+      if (rawEl.children.length > 3) continue;
+      const cb = normalizeClickable(rawEl);
+      if (isConfirmCandidate(cb, false)) leafMatches.push(cb);
+    }
+    if (leafMatches.length > 0) return pickBestButton(leafMatches);
+
+    // 4. Modal-scoped fallback for themes where Confirm sheet button repeats "Cashout"
+    const roots = Array.from(document.querySelectorAll(${JSON.stringify(CASHOUT_CONFIRM_ROOT_SEL)})).filter(isRootNotHidden);
+    for (const root of roots) {
+      if (root.closest?.(BETSLIP_ANCESTOR_SEL) || !hasModalCues(root)) continue;
+      const modalBtns = [];
+      const selfCand = normalizeClickable(root);
+      if (isConfirmCandidate(selfCand, true)) modalBtns.push(selfCand);
+      for (const rawEl of Array.from(root.querySelectorAll(
+        'button, [role="button"], .m-btn, .af-button, .es-button, [class*="btn" i], [class*="button" i], [data-op*="confirm" i], [data-op*="cashout" i], [class*="confirm" i]'
+      ))) {
+        const cb = normalizeClickable(rawEl);
+        if (isConfirmCandidate(cb, true)) modalBtns.push(cb);
+      }
+      if (modalBtns.length > 0) return pickBestButton(modalBtns);
+    }
+    return null;
+  };
+
+  const hasOpenModalOverlay = () => {
+    return Array.from(document.querySelectorAll('.m-pop, .af-dialog, .m-dialog, .es-dialog, [role="dialog"], [class*="mask" i], [class*="overlay" i], [class*="backdrop" i]'))
+      .some((el) => {
+        if (!isRootNotHidden(el)) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 120 && r.height > 120;
+      });
+  };
+
+  const findTicketCashoutBtns = () => {
     const EXCLUDED_ANCESTORS = [
       'header', 'nav', 'footer',
       '.m-openbet-header', '[class*="openbet-header" i]', '[class*="open-bets-header" i]', '[class*="header-wrap" i]',
       '.m-bottom-fixed', '[class*="bottom-fixed" i]',
       '[class*="help" i]', '[class*="guide" i]', '[class*="faq" i]', '[class*="rule" i]',
-      '[class*="auto-cashout" i]', '[class*="partial" i]', '[class*="history" i]', '.m-cashout'
+      '[class*="auto-cashout" i]', '[class*="partial" i]', '[class*="history" i]',
+      '[data-op*="confirm" i]',
+      BETSLIP_ANCESTOR_SEL
     ].join(', ');
-
     const isTicketCashoutText = (t) => {
       if (!t || t.length > 48 || t.includes('?')) return false;
-      if (/\\b(how to|what is|learn|more|auto[\\s-]*cash|partial|rule|faq|guide|history|terms|detail|open bets)\\b/i.test(t)) return false;
+      if (BAD_BTN_WORDS_RE.test(t) || CONFIRM_BTN_RE.test(t)) return false;
       return t === 'cashout' || t === 'cash out' || /^cash\\s*out\\b/i.test(t) || /^cashout\\b/i.test(t);
     };
 
-    const ticketScope = document.querySelector('.m-sportBets, [class*="open-bet" i], [class*="openbet" i], [class*="bet-list" i], [class*="order" i], main, #__nuxt') || document;
-    const candidates = Array.from(ticketScope.querySelectorAll(
-      'button, [role="button"], .m-btn, .af-button, [data-op*="cashout" i], [class*="cashout" i], [class*="cash-out" i]'
+    // 1. Exact SportyBet ticket Cashout button across document (never restricted by a single header querySelector!)
+    const exactTicketBtns = Array.from(document.querySelectorAll(
+      'button[data-op="openbet__cashout_btn"], [data-op="openbet__cashout_btn"], button.m-btn--cashout, [data-op*="cashout_btn" i]'
     )).filter((el) => {
-      if (!isVis(el)) return false;
-      if (el.tagName === 'A' && el.hasAttribute('href')) return false;
-      if (el.closest('a[href]')) return false;
-      if (el.closest(EXCLUDED_ANCESTORS)) return false;
-      if (el.tagName !== 'BUTTON' && el.querySelector('button, [role="button"], .m-btn, .af-button')) return false;
-      return isTicketCashoutText(norm(el));
+      if (!isVis(el) || el.closest(EXCLUDED_ANCESTORS)) return false;
+      return !BAD_BTN_WORDS_RE.test(norm(el));
     });
+    if (exactTicketBtns.length > 0) {
+      const topExact = exactTicketBtns.filter((b) => isTopMost(b).top);
+      return topExact.length > 0 ? topExact : exactTicketBtns;
+    }
 
+    // 2. Broad fallback across document for Football.com / alternate bookmaker markup
+    const rawCandidates = Array.from(document.querySelectorAll(
+      'button, [role="button"], .m-btn, .af-button, .es-button, [class*="btn" i], [class*="button" i], [data-op*="cashout" i], [class*="cashout" i], [class*="cash-out" i]'
+    ));
+    const hits = [];
+    for (const rawEl of rawCandidates) {
+      const el = normalizeClickable(rawEl);
+      if (!el || !isVis(el)) continue;
+      if (el.tagName === 'A' && el.hasAttribute('href')) continue;
+      if (el.closest('a[href]')) continue;
+      if (el.closest(EXCLUDED_ANCESTORS)) continue;
+      if (el.tagName !== 'BUTTON' && el.querySelector('button, [role="button"]')) continue;
+      if (!isTicketCashoutText(norm(el))) continue;
+      if (!hits.includes(el)) hits.push(el);
+    }
+    const topHits = hits.filter((b) => isTopMost(b).top);
+    return topHits.length > 0 ? topHits : hits;
+  };
+`;
+
+const INSPECT_OPEN_BETS_STATE_JS = `
+  (() => {
+    ${CASHOUT_DOM_HELPERS}
+    const confirmBtn = findConfirmCashoutBtn();
+    if (confirmBtn) return { state: 'confirm-open', href: location.href, label: norm(confirmBtn) };
+
+    const ticketBtns = findTicketCashoutBtns();
+    if (ticketBtns.length > 0) return { state: 'has-tickets', count: ticketBtns.length, href: location.href };
+
+    const bodyTxt = (document.body?.innerText || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+    if (/\\b(please\\s+log\\s*in|log\\s*in\\s+to\\s+view|sign\\s*in\\s+to\\s+view)\\b/i.test(bodyTxt)) {
+      return { state: 'logged-out', href: location.href };
+    }
+    const hasSpinner = Array.from(document.querySelectorAll('[class*="loading" i], [class*="spinner" i], [class*="skeleton" i]'))
+      .some((el) => isRootNotHidden(el) && el.getBoundingClientRect().height > 8);
+    if (hasSpinner) {
+      return { state: 'loading', href: location.href };
+    }
+    const hasEmptyNode = Array.from(document.querySelectorAll('.no-data, .m-empty, [class*="empty" i], [class*="no-bet" i], [class*="no-data" i]'))
+      .some((el) => isRootNotHidden(el) && el.getBoundingClientRect().height > 12);
+    if (hasEmptyNode || /\\b(no\\s+bets\\??\\s+no\\s+problem|no\\s+open\\s+bets?|no\\s+cashout\\s+available|no\\s+records?|no\\s+tickets?)\\b/i.test(bodyTxt)) {
+      return { state: 'empty', href: location.href };
+    }
+    return { state: 'loading', href: location.href };
+  })()
+`;
+
+const PREPARE_CASHOUT_CLICK_JS = `
+  (async () => {
+    ${CASHOUT_DOM_HELPERS}
+    const confirmBtn = findConfirmCashoutBtn();
+    if (confirmBtn) {
+      const r = confirmBtn.getBoundingClientRect();
+      return { mode: 'confirm-only', confirmReady: true, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), label: norm(confirmBtn) };
+    }
+
+    const candidates = findTicketCashoutBtns();
     if (candidates.length === 0) return { mode: 'none' };
 
     const btn = candidates[0];
-    try { btn.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (_) {}
-    const r = btn.getBoundingClientRect();
     const label = norm(btn);
-    try { btn.click(); } catch (_) {}
+    const coords = dispatchCashoutClick(btn);
+
+    // Same fast MutationObserver confirmation wait used in SINGLE_BET_PLACE_ONLY_JS
+    const immediateConfirm = findConfirmCashoutBtn();
+    if (immediateConfirm) {
+      const cr = immediateConfirm.getBoundingClientRect();
+      return {
+        mode: 'clicked-ticket',
+        label,
+        x: coords ? coords.x : 0,
+        y: coords ? coords.y : 0,
+        confirmReady: true,
+        confirmLabel: norm(immediateConfirm),
+        confirmX: Math.round(cr.left + cr.width / 2),
+        confirmY: Math.round(cr.top + cr.height / 2),
+      };
+    }
+
+    const awaitedConfirm = await new Promise((resolve) => {
+      let done = false;
+      let obs = null;
+      let timer = null;
+      const finish = (cb) => {
+        if (done) return;
+        done = true;
+        if (obs) try { obs.disconnect(); } catch (_) {}
+        if (timer) clearTimeout(timer);
+        resolve(cb || null);
+      };
+      const check = () => {
+        const cb = findConfirmCashoutBtn();
+        if (cb) finish(cb);
+      };
+      try {
+        obs = new MutationObserver(check);
+        if (document.documentElement) {
+          obs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-op'] });
+        }
+      } catch (_) {}
+      timer = setTimeout(() => finish(findConfirmCashoutBtn()), 350);
+    });
+
+    if (awaitedConfirm) {
+      const cr = awaitedConfirm.getBoundingClientRect();
+      return {
+        mode: 'clicked-ticket',
+        label,
+        x: coords ? coords.x : 0,
+        y: coords ? coords.y : 0,
+        confirmReady: true,
+        confirmLabel: norm(awaitedConfirm),
+        confirmX: Math.round(cr.left + cr.width / 2),
+        confirmY: Math.round(cr.top + cr.height / 2),
+      };
+    }
+
     return {
       mode: 'clicked-ticket',
       label,
-      x: Math.round(r.left + r.width / 2),
-      y: Math.round(r.top + r.height / 2),
+      x: coords ? coords.x : 0,
+      y: coords ? coords.y : 0,
+      confirmReady: false,
     };
   })()
 `;
 
 const FIND_CASHOUT_CONFIRM_JS = `
   (() => {
-    const norm = (el) => (el?.innerText || el?.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-    const isVis = (el) => {
-      if (!el || el.disabled) return false;
-      if (el.closest('[disabled], [aria-disabled="true"], .is-disabled, .disabled')) return false;
-      const r = el.getBoundingClientRect();
-      const st = window.getComputedStyle(el);
-      return r.width > 20 && r.height > 16 && st.visibility !== 'hidden' && st.display !== 'none' && st.pointerEvents !== 'none' && st.opacity !== '0';
-    };
-
-    const roots = Array.from(document.querySelectorAll(${JSON.stringify(CASHOUT_CONFIRM_ROOT_SEL)})).filter(isVis);
-    for (const root of roots) {
-      const cBtns = Array.from(root.querySelectorAll('button, [role="button"], .m-btn, .af-button, [data-op*="confirm" i], [data-op*="cashout" i]')).filter((cb) => {
-        if (!isVis(cb)) return false;
-        if (cb.tagName !== 'BUTTON' && cb.querySelector('button, [role="button"]')) return false;
-        const ct = norm(cb);
-        if (!ct || ct.length > 44 || ct.includes('?')) return false;
-        if (/\\b(cancel|close|back|partial|auto[\\s-]*cash|rule|how to|what is|learn|no)\\b/i.test(ct)) return false;
-        return ct === 'confirm' || ct === 'confirm cashout' || ct === 'confirm cash out' ||
-          ct === 'cashout' || ct === 'cash out' || /^confirm\\b/i.test(ct) || /^cash\\s*out\\b/i.test(ct);
-      });
-      if (cBtns.length > 0) {
-        const cb = cBtns[cBtns.length - 1];
+    ${CASHOUT_DOM_HELPERS}
+    const cb = findConfirmCashoutBtn();
+    if (cb) {
+      try { cb.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); } catch (_) {
         try { cb.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (_) {}
-        const r = cb.getBoundingClientRect();
-        return { found: true, clickNow: true, label: norm(cb), x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
       }
+      const r = cb.getBoundingClientRect();
+      return {
+        found: true,
+        clickNow: true,
+        overlayOpen: true,
+        label: norm(cb),
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(r.top + r.height / 2),
+      };
     }
-    return { found: false };
+    return { found: false, overlayOpen: hasOpenModalOverlay() };
   })()
 `;
 
 const CLICK_CASHOUT_CONFIRM_JS = `
-  (() => {
-    const norm = (el) => (el?.innerText || el?.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-    const isVis = (el) => {
-      if (!el || el.disabled) return false;
-      if (el.closest('[disabled], [aria-disabled="true"], .is-disabled, .disabled')) return false;
-      const r = el.getBoundingClientRect();
-      const st = window.getComputedStyle(el);
-      return r.width > 20 && r.height > 16 && st.visibility !== 'hidden' && st.display !== 'none' && st.pointerEvents !== 'none' && st.opacity !== '0';
-    };
+  (async () => {
+    ${CASHOUT_DOM_HELPERS}
+    const cb = findConfirmCashoutBtn();
+    if (!cb) return { clicked: false, dismissed: false };
 
-    const roots = Array.from(document.querySelectorAll(${JSON.stringify(CASHOUT_CONFIRM_ROOT_SEL)})).filter(isVis);
-    for (const root of roots) {
-      const cBtns = Array.from(root.querySelectorAll('button, [role="button"], .m-btn, .af-button, [data-op*="confirm" i], [data-op*="cashout" i]')).filter((cb) => {
-        if (!isVis(cb)) return false;
-        if (cb.tagName !== 'BUTTON' && cb.querySelector('button, [role="button"]')) return false;
-        const ct = norm(cb);
-        if (!ct || ct.length > 44 || ct.includes('?')) return false;
-        if (/\\b(cancel|close|back|partial|auto[\\s-]*cash|rule|how to|what is|learn|no)\\b/i.test(ct)) return false;
-        return ct === 'confirm' || ct === 'confirm cashout' || ct === 'confirm cash out' ||
-          ct === 'cashout' || ct === 'cash out' || /^confirm\\b/i.test(ct) || /^cash\\s*out\\b/i.test(ct);
-      });
-      if (cBtns.length > 0) {
-        const cb = cBtns[cBtns.length - 1];
-        const r = cb.getBoundingClientRect();
-        try { cb.click(); } catch (_) {}
-        return { clicked: true, label: norm(cb), x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    const label = norm(cb);
+    const coords = dispatchCashoutClick(cb);
+
+    // Same pattern as SINGLE_BET_CONFIRM_ONLY_JS: handle rapid confirm re-render + MutationObserver dismissal wait
+    for (let sub = 0; sub < 8; sub++) {
+      await new Promise((r) => setTimeout(r, 12));
+      const nextC = findConfirmCashoutBtn();
+      if (nextC && nextC !== cb) {
+        dispatchCashoutClick(nextC);
+        break;
       }
     }
-    return { clicked: false };
+
+    if (!findConfirmCashoutBtn()) {
+      return {
+        clicked: true,
+        dismissed: true,
+        label,
+        x: coords ? coords.x : 0,
+        y: coords ? coords.y : 0,
+      };
+    }
+
+    const dismissed = await new Promise((resolve) => {
+      let done = false;
+      let obs = null;
+      let timer = null;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        if (obs) try { obs.disconnect(); } catch (_) {}
+        if (timer) clearTimeout(timer);
+        resolve(!!ok);
+      };
+      const check = () => {
+        if (!findConfirmCashoutBtn()) finish(true);
+      };
+      try {
+        obs = new MutationObserver(check);
+        if (document.documentElement) {
+          obs.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-op'] });
+        }
+      } catch (_) {}
+      timer = setTimeout(() => finish(!findConfirmCashoutBtn()), 380);
+    });
+
+    return {
+      clicked: true,
+      dismissed,
+      label,
+      x: coords ? coords.x : 0,
+      y: coords ? coords.y : 0,
+    };
   })()
 `;
 
@@ -2835,6 +3091,7 @@ module.exports = {
   SINGLE_BET_PLACE_ONLY_JS,
   SINGLE_BET_CONFIRM_ONLY_JS,
   NAV_OPEN_BETS_JS,
+  INSPECT_OPEN_BETS_STATE_JS,
   PREPARE_CASHOUT_CLICK_JS,
   FIND_CASHOUT_CONFIRM_JS,
   CLICK_CASHOUT_CONFIRM_JS,
