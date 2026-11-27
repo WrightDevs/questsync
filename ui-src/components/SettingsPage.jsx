@@ -75,6 +75,8 @@ export default function SettingsPage({
   onZoomBetano,
   betanoOpen = false,
   onToggleBetano,
+  monitorListenerConfig = { goalBetAction: 'place_confirm', autoCashoutOnDrop: true },
+  onUpdateMonitorListenerConfig,
 
   // Cashout
   cashoutConfig = {},
@@ -101,6 +103,8 @@ export default function SettingsPage({
   const bWidth = betanoConfig?.width ?? 340;
   const bZoom = betanoConfig?.zoom ?? 0.65;
   const bMobileUA = betanoConfig?.mobileUA !== false;
+  const goalBetAction = monitorListenerConfig?.goalBetAction || 'place_confirm';
+  const autoCashoutOnDrop = monitorListenerConfig?.autoCashoutOnDrop !== false;
 
   const cAutoNav = cashoutConfig?.autoNavOpenBets !== false;
 
@@ -710,6 +714,38 @@ export default function SettingsPage({
               >
                 <span className="indicator" />
                 <span>{bMobileUA ? 'Mobile Layout' : 'Desktop Layout'}</span>
+              </button>
+            </div>
+
+            <div className="settings-row">
+              <div className="row-info">
+                <span className="row-title">Goal Trigger Action</span>
+                <span className="row-desc">Action fired on your pre-selected pane games when Betano score increases</span>
+              </div>
+              <select
+                className="select-bookmaker"
+                aria-label="Goal Trigger Action"
+                value={goalBetAction}
+                onChange={(e) => onUpdateMonitorListenerConfig && onUpdateMonitorListenerConfig({ goalBetAction: e.target.value })}
+              >
+                <option value="place_confirm">Place &amp; Confirm (1-Pass)</option>
+                <option value="place_only">Place Bet Only</option>
+                <option value="rapid_attack">Rapid Attack Cycle</option>
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <div className="row-info">
+                <span className="row-title">Auto-Cashout on Score Drop</span>
+                <span className="row-desc">Run Cashout + Confirm Cashout if VAR drops the score and re-arm for the next goal</span>
+              </div>
+              <button
+                type="button"
+                className={`toggle-switch ${autoCashoutOnDrop ? 'is-on' : ''}`}
+                onClick={() => onUpdateMonitorListenerConfig && onUpdateMonitorListenerConfig({ autoCashoutOnDrop: !autoCashoutOnDrop })}
+              >
+                <span className="indicator" />
+                <span>{autoCashoutOnDrop ? 'ON (Cashout + Re-arm)' : 'OFF'}</span>
               </button>
             </div>
 

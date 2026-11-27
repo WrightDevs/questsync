@@ -13,15 +13,45 @@ import {
   ArrowRight,
   BookOpen,
   SlidersHorizontal,
+  Radio,
+  Target,
   X,
 } from 'lucide-react';
 
 const WHATS_NEW_ITEMS = [
   {
     badge: 'NEW',
+    tone: 'amber',
+    title: 'Betano Live-Score Listener & VAR Cashout',
+    desc: 'Sleek glass "Watch this match" overlay on Betano match pages auto-triggers pane bets on goals, or runs 2-step Cashout + Confirm & re-arms on VAR score drops.',
+    icon: Radio,
+  },
+  {
+    badge: 'UPGRADED',
+    tone: 'blue',
+    title: 'Redesigned Header, Mode Cluster & Toolbar',
+    desc: '4-zone header with unified Mirror / Auto-Accept / 1-Click·2-Click toggles, read-only IDLE/volume telemetry, single-row workspace toolbar, and Panes 1–8 in Settings.',
+    icon: SlidersHorizontal,
+  },
+  {
+    badge: 'FIXED',
+    tone: 'emerald',
+    title: 'Two-Step Cashout All & Open Bets Sync',
+    desc: 'Reliable Alt+C & VAR cashout matching SportyBet openbet__cashout_btn → open_bets__cashout_confirm with XHR load wait and blocked-nav URL fallback.',
+    icon: ShieldCheck,
+  },
+  {
+    badge: 'UPGRADED',
+    tone: 'blue',
+    title: 'Idempotent Structural Mirror Clicking',
+    desc: 'Cross-pane mirror resolution now uses strict single-odds outcome boundaries, entity ID tuples, desired-state parity guards, and 350ms lead reconciliation.',
+    icon: Target,
+  },
+  {
+    badge: 'NEW',
     tone: 'blue',
     title: '1-Click & 2-Click Single Bet Mode',
-    desc: 'Choose between 1-Click (Place Bet → Confirm in one Spacebar press) or state-based 2-Click (Space 1 places bet, Space 2 confirms) in Settings.',
+    desc: 'Switch 1-Click (Place → Confirm) or state-based 2-Click (Space 1 places, Space 2 confirms) directly from the top mode cluster or in Settings.',
     icon: MousePointerClick,
   },
   {

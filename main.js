@@ -31,6 +31,10 @@ const {
   CLICK_CASHOUT_CONFIRM_JS,
   loginCode,
 } = require('./site-adapters');
+const {
+  extractBetanoMatchKey,
+  createBetanoGoalTracker,
+} = require('./betano-listener');
 const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
@@ -94,6 +98,21 @@ const monitorConfig = {
   width: 340,      // docked strip width in px (260..540)
   zoom: 0.65,      // independent monitor zoom (0.5..1.5)
   mobileUA: true,  // mobile User-Agent
+};
+const monitorListenerConfig = {
+  goalBetAction: 'place_confirm', // 'place_confirm' | 'place_only' | 'rapid_attack'
+  autoCashoutOnDrop: true,
+};
+const monitorGoalTracker = createBetanoGoalTracker();
+const monitorWatchState = {
+  armed: false,
+  isMatchPage: false,
+  score: '',
+  prevScore: '',
+  url: '',
+  matchKey: '',
+  lastEvent: '',
+  lastTriggerAt: 0,
 };
 
 const MONITOR_MOBILE_UA =
@@ -209,6 +228,14 @@ function loadUserSettings() {
           monitorConfig.country = s.monitorConfig.country;
         }
       }
+      if (s.monitorListenerConfig && typeof s.monitorListenerConfig === 'object') {
+        if (['place_confirm', 'place_only', 'rapid_attack'].includes(s.monitorListenerConfig.goalBetAction)) {
+          monitorListenerConfig.goalBetAction = s.monitorListenerConfig.goalBetAction;
+        }
+        if (typeof s.monitorListenerConfig.autoCashoutOnDrop === 'boolean') {
+          monitorListenerConfig.autoCashoutOnDrop = s.monitorListenerConfig.autoCashoutOnDrop;
+        }
+      }
       if (s.cashoutConfig && typeof s.cashoutConfig === 'object') {
         Object.assign(cashoutConfig, s.cashoutConfig);
       }
@@ -279,6 +306,7 @@ function saveUserSettings() {
       profitTargets: { ...profitTargets },
       rebetConfig: { ...rebetConfig },
       monitorConfig: { ...monitorConfig },
+      monitorListenerConfig: { ...monitorListenerConfig },
       cashoutConfig: { ...cashoutConfig },
       balanceAwareStake,
       autoRebetOnSpace,
@@ -894,6 +922,7 @@ ipcMain.handle('ui:get-user-settings', () => ({
   profitTargets: { ...profitTargets },
   rebetConfig: { ...rebetConfig },
   monitorConfig: { ...monitorConfig },
+  monitorListenerConfig: { ...monitorListenerConfig },
   cashoutConfig: { ...cashoutConfig },
   balanceAwareStake,
   autoRebetOnSpace,
@@ -955,6 +984,14 @@ ipcMain.handle('ui:save-user-settings', (_e, patch) => {
       }
     }
     if (patch.monitorConfig) Object.assign(monitorConfig, patch.monitorConfig);
+    if (patch.monitorListenerConfig && typeof patch.monitorListenerConfig === 'object') {
+      if (['place_confirm', 'place_only', 'rapid_attack'].includes(patch.monitorListenerConfig.goalBetAction)) {
+        monitorListenerConfig.goalBetAction = patch.monitorListenerConfig.goalBetAction;
+      }
+      if (typeof patch.monitorListenerConfig.autoCashoutOnDrop === 'boolean') {
+        monitorListenerConfig.autoCashoutOnDrop = patch.monitorListenerConfig.autoCashoutOnDrop;
+      }
+    }
     if (patch.cashoutConfig) Object.assign(cashoutConfig, patch.cashoutConfig);
     if (typeof patch.autoRebetOnSpace === 'boolean') autoRebetOnSpace = patch.autoRebetOnSpace;
     if (patch.singleBetClickMode === '1-click' || patch.singleBetClickMode === '2-click') {
@@ -2265,6 +2302,101 @@ function adjustMonitorZoom(actionOrValue) {
   return { ...monitorConfig };
 }
 
+function emitMonitorWatchStatus() {
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.webContents.send('monitor-watch-status', {
+      ...monitorWatchState,
+      ...monitorListenerConfig,
+    });
+  } catch (_) {}
+}
+
+function pushMonitorWatchToView(wc) {
+  if (!wc || wc.isDestroyed()) return;
+  try {
+    wc.send('monitor:watch-state', { armed: !!monitorWatchState.armed });
+  } catch (_) {}
+}
+
+function setMonitorWatchArmed(armed, reason = '') {
+  monitorWatchState.armed = !!armed;
+  if (!monitorWatchState.armed) {
+    monitorWatchState.prevScore = '';
+  }
+  if (reason) monitorWatchState.lastEvent = reason;
+  pushMonitorWatchToView(getActiveMonitorWebContents());
+  emitMonitorWatchStatus();
+}
+
+async function triggerBetanoGoalAction(transition, matchKey) {
+  const action = monitorListenerConfig.goalBetAction || 'place_confirm';
+  const sourceLabel = `Betano Goal (${transition.prev} -> ${transition.next} | ${matchKey})`;
+  monitorWatchState.lastTriggerAt = Date.now();
+  monitorWatchState.lastEvent = `Goal ${transition.prev} → ${transition.next} (${action})`;
+  emitMonitorWatchStatus();
+
+  if (autoRebetRunning || singleBetInFlight) {
+    console.warn(`[BetanoWatch] Skipped trigger (${sourceLabel}): bet execution already in flight`);
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('acc-status', { msg: `${sourceLabel}: Skipped (betting busy)` });
+    }
+    return;
+  }
+
+  console.log(`[SAFETY][BetTrigger] ${sourceLabel} | Action: ${action}`);
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('acc-status', { msg: `⚽ ${sourceLabel} — triggering selected game bets...` });
+  }
+
+  if (action === 'place_only') {
+    singleBetInFlight = true;
+    emitAutoRebetState(`Goal Trigger: Placing bets (leaving Confirm)...`);
+    try {
+      const results = await Promise.all(
+        views.map((v) => {
+          if (!viewReady(v)) return Promise.resolve(null);
+          return withTimeout(v.webContents.executeJavaScript(SINGLE_BET_PLACE_ONLY_JS), 3000, null).catch(() => null);
+        })
+      );
+      const placedCount = results.filter((r) => r && r.placed).length;
+      emitAutoRebetState(`Goal Trigger: Placed on ${placedCount}/${views.length} pane(s) (Confirm left for you)`);
+    } finally {
+      singleBetInFlight = false;
+    }
+    return;
+  }
+
+  if (action === 'rapid_attack') {
+    const runCyc = autoRebetCycles === 'inf' ? 'inf' : Math.max(1, parseInt(autoRebetCycles, 10) || 1);
+    await startAutoRebet(runCyc, sourceLabel);
+    return;
+  }
+
+  // Default: 'place_confirm' — 1-Pass Place Bet -> Confirm on whatever selection is ready in each pane
+  await startAutoRebet(1, sourceLabel);
+}
+
+async function triggerBetanoScoreDropCashout(transition, matchKey, rearmedCount) {
+  const label = `Betano Score Drop (${transition.prev} → ${transition.next} | ${matchKey})`;
+  monitorWatchState.lastEvent = `VAR Drop ${transition.prev} → ${transition.next}${monitorListenerConfig.autoCashoutOnDrop ? ' · Auto-Cashout' : ''}`;
+  emitMonitorWatchStatus();
+
+  console.log(`[BetanoWatch] ${label} | Re-armed ${rearmedCount} goal transition(s) for next goal`);
+
+  if (!monitorListenerConfig.autoCashoutOnDrop) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('acc-status', { msg: `⚠ ${label} — goal lock cleared for next goal` });
+    }
+    return;
+  }
+
+  for (let w = 0; w < 20 && cashoutBusy; w++) {
+    await sleep(100);
+  }
+  await triggerCashoutAll(`VAR Drop ${transition.prev} -> ${transition.next}`);
+}
+
 function attachMonitorInputHandlers(wc) {
   if (!wc || wc.isDestroyed()) return;
   wc.setMaxListeners(50);
@@ -2275,12 +2407,16 @@ function attachMonitorInputHandlers(wc) {
   });
 
   wc.on('dom-ready', () => {
-    if (!wc.isDestroyed()) wc.setZoomFactor(monitorConfig.zoom);
+    if (!wc.isDestroyed()) {
+      wc.setZoomFactor(monitorConfig.zoom);
+      pushMonitorWatchToView(wc);
+    }
   });
 
   wc.on('did-finish-load', () => {
     if (!wc.isDestroyed()) {
       wc.setZoomFactor(monitorConfig.zoom);
+      pushMonitorWatchToView(wc);
     }
   });
 
@@ -2342,6 +2478,7 @@ function ensureMonitorOpen(preserveUrl) {
       v = new WebContentsView({
         webPreferences: {
           partition: 'persist:monitor-panel',
+          preload: path.join(__dirname, 'monitor-preload.js'),
           contextIsolation: true,
           sandbox: true,
           backgroundThrottling: false,
@@ -2387,6 +2524,7 @@ function ensureMonitorOpen(preserveUrl) {
         backgroundColor: '#0f1420',
         webPreferences: {
           partition: 'persist:monitor-panel',
+          preload: path.join(__dirname, 'monitor-preload.js'),
           contextIsolation: true,
           sandbox: true,
           backgroundThrottling: false,
@@ -2418,6 +2556,7 @@ function ensureMonitorOpen(preserveUrl) {
 
 function closeMonitor() {
   monitorConfig.open = false;
+  setMonitorWatchArmed(false, 'Monitor closed');
   destroyMonitorView();
   destroyMonitorWin();
   layout();
@@ -2481,6 +2620,9 @@ ipcMain.handle('ui:set-monitor-config', (_e, patch) => {
   const isAlive = !!getActiveMonitorWebContents();
   const siteChanged = prevSite !== monitorConfig.site;
   const countryChanged = prevCountry !== monitorConfig.country;
+  if (siteChanged || countryChanged) {
+    setMonitorWatchArmed(false, 'Monitor provider/country changed');
+  }
   if (!isAlive || prevMode !== monitorConfig.mode || siteChanged || countryChanged) {
     ensureMonitorOpen((siteChanged || countryChanged) ? getMonitorTargetUrl() : getMonitorUrl());
   } else {
@@ -2503,6 +2645,107 @@ ipcMain.handle('ui:reload-monitor', () => {
   const wc = getActiveMonitorWebContents();
   if (wc) wc.reload();
   return !!wc;
+});
+
+ipcMain.handle('ui:toggle-monitor-watch', () => {
+  if (!monitorWatchState.armed && !monitorWatchState.isMatchPage) {
+    return { ...monitorWatchState, ...monitorListenerConfig, error: 'Open a Betano live match page first' };
+  }
+  setMonitorWatchArmed(!monitorWatchState.armed, !monitorWatchState.armed ? 'Armed from UI' : 'Disarmed from UI');
+  return { ...monitorWatchState, ...monitorListenerConfig };
+});
+
+ipcMain.handle('ui:get-monitor-watch-state', () => ({
+  ...monitorWatchState,
+  ...monitorListenerConfig,
+}));
+
+ipcMain.handle('ui:set-monitor-listener-config', (_e, patch) => {
+  if (patch && typeof patch === 'object') {
+    if (['place_confirm', 'place_only', 'rapid_attack'].includes(patch.goalBetAction)) {
+      monitorListenerConfig.goalBetAction = patch.goalBetAction;
+    }
+    if (typeof patch.autoCashoutOnDrop === 'boolean') {
+      monitorListenerConfig.autoCashoutOnDrop = patch.autoCashoutOnDrop;
+    }
+    saveUserSettings();
+    emitMonitorWatchStatus();
+  }
+  return { ...monitorWatchState, ...monitorListenerConfig };
+});
+
+ipcMain.on('monitor:page-info', (_e, info) => {
+  if (!info || typeof info !== 'object') return;
+  monitorWatchState.url = String(info.url || '');
+  monitorWatchState.isMatchPage = !!info.isMatchPage;
+  monitorWatchState.matchKey = info.isMatchPage ? extractBetanoMatchKey(monitorWatchState.url) : '';
+  if (info.score) monitorWatchState.score = String(info.score);
+  else if (!info.isMatchPage) monitorWatchState.score = '';
+  emitMonitorWatchStatus();
+});
+
+ipcMain.on('monitor:watch-toggle', (_e, info) => {
+  if (info && typeof info === 'object') {
+    monitorWatchState.url = String(info.url || monitorWatchState.url || '');
+    monitorWatchState.isMatchPage = info.isMatchPage !== undefined ? !!info.isMatchPage : monitorWatchState.isMatchPage;
+    monitorWatchState.matchKey = monitorWatchState.isMatchPage ? extractBetanoMatchKey(monitorWatchState.url) : '';
+    if (info.score) monitorWatchState.score = String(info.score);
+  }
+  if (!monitorWatchState.armed && !monitorWatchState.isMatchPage) return;
+  const next = !monitorWatchState.armed;
+  setMonitorWatchArmed(next, next ? 'Watch armed' : 'Watch stopped');
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('acc-status', {
+      msg: next
+        ? `Betano Watch ARMED (${monitorWatchState.score || 'waiting for score'})`
+        : 'Betano Watch stopped',
+    });
+  }
+});
+
+ipcMain.on('monitor:watch-auto-off', (_e, info) => {
+  monitorWatchState.url = String(info?.url || '');
+  monitorWatchState.isMatchPage = !!info?.isMatchPage;
+  monitorWatchState.matchKey = monitorWatchState.isMatchPage ? extractBetanoMatchKey(monitorWatchState.url) : '';
+  monitorWatchState.score = '';
+  setMonitorWatchArmed(false, 'Auto-disarmed on navigation');
+});
+
+ipcMain.on('monitor:score-update', (_e, data) => {
+  if (!monitorWatchState.armed || !data || !data.score) return;
+  const url = String(data.url || monitorWatchState.url || '');
+  const matchKey = extractBetanoMatchKey(url);
+  const nextScore = String(data.score);
+  const prevScore = data.isInitial ? '' : String(data.prev || monitorWatchState.prevScore || '');
+
+  monitorWatchState.url = url;
+  monitorWatchState.matchKey = matchKey;
+  monitorWatchState.prevScore = prevScore;
+  monitorWatchState.score = nextScore;
+
+  if (!prevScore || data.isInitial) {
+    monitorWatchState.lastEvent = `Baseline ${nextScore}`;
+    emitMonitorWatchStatus();
+    console.log(`[BetanoWatch] Baseline initialized at ${nextScore} (${matchKey})`);
+    return;
+  }
+
+  const outcome = monitorGoalTracker.handleTransition(matchKey, prevScore, nextScore);
+  if (outcome.shouldFireBet) {
+    if (Date.now() - monitorWatchState.lastTriggerAt < 1000) {
+      console.warn('[BetanoWatch] Trigger suppressed by 1s safety cooldown');
+      return;
+    }
+    triggerBetanoGoalAction(outcome.transition, matchKey).catch((err) => {
+      console.error('[BetanoWatch] Goal trigger error:', err);
+    });
+  } else if (outcome.shouldCashout) {
+    triggerBetanoScoreDropCashout(outcome.transition, matchKey, outcome.rearmedCount).catch((err) => {
+      console.error('[BetanoWatch] Score drop cashout error:', err);
+    });
+  } else {
+    emitMonitorWatchStatus();
+  }
 });
 
 ipcMain.handle('ui:zoom-monitor', (_e, actionOrValue) => adjustMonitorZoom(actionOrValue));

@@ -127,6 +127,175 @@ function relPath(a, el) {
   return parts.join(' > ');
 }
 
+// ─── Structural Descriptor & Multi-Stage Resolver (Regex + Stable Class) ───
+
+const MIRROR_STATE_CLS_RE = /^(active|selected|current|hover|focus|disabled|open|show|checked|on|off|is-active|is-selected)$/i;
+const MIRROR_HASH_CLS_RE = /\d{3,}|^[a-z]{0,2}-?[0-9a-f]{6,}$/i;
+const MIRROR_ID_ATTR_RE = /^data-(op|key|id|.*-id|.*id|event|market|outcome|specifier|sport|tab|index|value|cms-key)$/i;
+const MIRROR_ENTITY_ATTR_RE = /^data-(id|.*-id|.*id|event|market|outcome|specifier|sport)$/i;
+
+const mirrorNorm = (str) => String(str || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+const attrEqSel = (name, val) => `[${name}="${String(val).replace(/["\\]/g, '\\$&')}"]`;
+
+function stableMirrorClasses(el) {
+  if (!el || !el.classList) return [];
+  return Array.from(el.classList)
+    .filter((c) => c && !MIRROR_HASH_CLS_RE.test(c) && !MIRROR_STATE_CLS_RE.test(c) && STABLE(c))
+    .slice(0, 3);
+}
+
+function mirrorScopeOf(el) {
+  let parent = el && el.parentElement;
+  for (let d = 0; parent && parent !== document.body && d < 6; d++, parent = parent.parentElement) {
+    const attrs = Array.from(parent.attributes || []).filter((a) => MIRROR_ID_ATTR_RE.test(a.name) && a.value && a.value.length < 80);
+    if (attrs.length) {
+      return parent.tagName.toLowerCase() + attrs.map((a) => attrEqSel(a.name, a.value)).join('');
+    }
+    if (parent.id && /^[A-Za-z][\w-]*$/.test(parent.id)) {
+      const idSel = '#' + CSS.escape(parent.id);
+      try { if (document.querySelectorAll(idSel).length === 1) return idSel; } catch (_) {}
+    }
+  }
+  return '';
+}
+
+function mirrorRowContext(el) {
+  let parent = el && el.parentElement;
+  for (let d = 0; parent && parent !== document.body && d < 8; d++, parent = parent.parentElement) {
+    const desc = parent.querySelector && parent.querySelector('.m-vs-desc, [class*="vs-desc" i], [class*="team-name" i], [class*="team-names" i], [class*="event-name" i]');
+    if (desc) {
+      const txt = mirrorNorm(desc.textContent);
+      if (txt) return txt;
+    }
+  }
+  return '';
+}
+
+function mirrorSameText(tag, text) {
+  if (!tag || !text) return [];
+  return Array.from(document.getElementsByTagName(tag)).filter((n) => mirrorNorm(n.textContent) === text);
+}
+
+function fastMirrorSelector(el, tag, data) {
+  if (el.id && /^[A-Za-z][\w-]*$/.test(el.id) && !/\d{3,}/.test(el.id)) {
+    const idSel = '#' + CSS.escape(el.id);
+    try { if (document.querySelectorAll(idSel).length === 1) return idSel; } catch (_) {}
+  }
+  const idEntries = Object.entries(data).filter(([k]) => MIRROR_ID_ATTR_RE.test(k));
+  if (!idEntries.length) return '';
+  const sel = tag + idEntries.map(([k, v]) => attrEqSel(k, v)).join('');
+  try { return document.querySelectorAll(sel).length === 1 ? sel : ''; } catch (_) { return ''; }
+}
+
+function describeElement(el) {
+  if (!el || el.nodeType !== 1) return null;
+  const tag = el.tagName.toLowerCase();
+  const data = {};
+  for (const attr of Array.from(el.attributes || [])) {
+    if (attr.name.startsWith('data-') && attr.value && attr.value.length < 80) {
+      data[attr.name] = attr.value;
+    }
+  }
+  const sels = [];
+  if (el.id && /^[A-Za-z][\w-]*$/.test(el.id)) sels.push('#' + CSS.escape(el.id));
+  for (const [k, v] of Object.entries(data)) sels.push(tag + attrEqSel(k, v));
+  const cls = stableMirrorClasses(el);
+  if (cls.length) sels.push(tag + cls.map((c) => '.' + CSS.escape(c)).join(''));
+  const text = (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? '' : mirrorNorm(el.textContent);
+  return {
+    tag,
+    data,
+    sels,
+    fast: fastMirrorSelector(el, tag, data),
+    path: cssPath(el),
+    text,
+    scope: mirrorScopeOf(el),
+    ord: text ? mirrorSameText(tag, text).indexOf(el) : -1,
+    row: mirrorRowContext(el),
+  };
+}
+
+function descriptorTextOk(el, sig) {
+  if (!sig.text) return true;
+  const txt = mirrorNorm(el.textContent);
+  return txt === sig.text || txt.startsWith(sig.text) || (sig.text.startsWith(txt) && txt.length > 0);
+}
+
+function resolveDescriptor(sig) {
+  if (!sig) return null;
+  // 1. Unique attribute-backed fast selector
+  if (sig.fast) {
+    try {
+      const hits = Array.from(document.querySelectorAll(sig.fast));
+      if (hits.length === 1 && (!sig.text || descriptorTextOk(hits[0], sig))) return hits[0];
+      const visHits = hits.filter(isElementVisible);
+      if (visHits.length === 1 && (!sig.text || descriptorTextOk(visHits[0], sig))) return visHits[0];
+    } catch (_) {}
+  }
+
+  const byTextMatch = (arr) => {
+    const exact = sig.text ? arr.filter((el) => mirrorNorm(el.textContent) === sig.text) : arr;
+    return exact.length ? exact : arr.filter((el) => descriptorTextOk(el, sig));
+  };
+  const pickBest = (arr) => {
+    if (!arr.length) return null;
+    if (sig.row) {
+      const rowHits = arr.filter((el) => mirrorRowContext(el) === sig.row);
+      if (rowHits.length) return rowHits.find(isElementVisible) || rowHits[0];
+    }
+    return arr.find(isElementVisible) || arr[0];
+  };
+
+  // 2. Strict cssPath verified by tag & exact text
+  if (sig.path) {
+    try {
+      const el = document.querySelector(sig.path);
+      if (el && el.tagName.toLowerCase() === sig.tag && (!sig.text || mirrorNorm(el.textContent) === sig.text)) {
+        return el;
+      }
+    } catch (_) {}
+  }
+
+  // 3. Attribute & stable-class candidate selectors narrowed by text/rowContext
+  for (const sel of sig.sels || []) {
+    try {
+      const list = Array.from(document.querySelectorAll(sel));
+      const picked = pickBest(byTextMatch(list));
+      if (picked) return picked;
+    } catch (_) {}
+  }
+
+  // 4. Relaxed cssPath fallback
+  if (sig.path) {
+    try {
+      const el = document.querySelector(sig.path);
+      if (el && el.tagName.toLowerCase() === sig.tag && descriptorTextOk(el, sig)) return el;
+    } catch (_) {}
+  }
+
+  // 5. Scoped container search
+  if (sig.scope) {
+    try {
+      for (const scopeEl of document.querySelectorAll(sig.scope)) {
+        const list = Array.from(scopeEl.getElementsByTagName(sig.tag)).filter((el) => !sig.text || descriptorTextOk(el, sig));
+        if (list.length) return pickBest(list.length > 1 && sig.text ? byTextMatch(list) : list);
+      }
+    } catch (_) {}
+  }
+
+  // 6. Row context + text ordinal fallback
+  if (sig.text && sig.row) {
+    const rowHits = mirrorSameText(sig.tag, sig.text).filter((el) => mirrorRowContext(el) === sig.row);
+    if (rowHits.length) return pickBest(rowHits);
+  }
+  if (sig.text) {
+    const same = mirrorSameText(sig.tag, sig.text);
+    if (same.length === 1) return same[0];
+    if (sig.ord >= 0 && same[sig.ord]) return same[sig.ord];
+  }
+  return null;
+}
+
 // ─── Send to main process ──────────────────────────────────────────────────
 
 function send(payload) {
@@ -613,19 +782,26 @@ function extractSemantic(target, clickable) {
 
   // 1. Outcome / odds button (outside betslip)
   if (!inBetslip) {
-    const outBtn = el.closest('[data-op="outcome-btn"], .m-outcome, [class*="m-outcome"], [class*="outcome-btn" i], [class*="outcome-item" i]');
+    const outBtn = findStrictOutcomeContainer(el);
     if (outBtn) {
       const card = findMatchCard(outBtn);
       const srMatchId = extractCardSrMatchId(card);
       const teams = extractTeamsFromCard(card);
       const outDetails = extractOutcomeDetails(outBtn, card);
-      if (srMatchId || teams.length === 2 || outDetails.label || outDetails.market) {
+      const strippedLabel = outDetails.label || normalizeOutcomeLabel(
+        String(outBtn.textContent || '').replace(OUTCOME_ODDS_RE, ' ').replace(/\s+/g, ' ').trim()
+      );
+      const ancestorIds = extractOutcomeAncestorIds(outBtn);
+      if (srMatchId || teams.length === 2 || strippedLabel || outDetails.market || ancestorIds.length) {
         return {
+          uid: nextMirrorUid(),
           kind: 'outcome',
+          want: !isOutcomeSelected(outBtn),
+          ancestorIds,
           srMatchId,
           teams,
           market: outDetails.market,
-          outcomeLabel: outDetails.label,
+          outcomeLabel: strippedLabel,
           colLabel: outDetails.colHeader,
           specifier: outDetails.specifier,
           outcomeIndex: outDetails.colIdx >= 0 ? outDetails.colIdx : null,
@@ -759,6 +935,105 @@ function extractSemantic(target, clickable) {
       isInsideModal,
       isCloseBtn,
     };
+  }
+  return null;
+}
+
+const OUTCOME_ODDS_RE = /\b\d{1,3}\.\d{2,3}\b/g;
+const OUTCOME_CLS_RE = /outcome|odds|selection/i;
+const OUTCOME_SELECTED_RE = /(^|[\s_-])(active|selected|checked|is-active|is-selected|on)(\s|$)|--(active|checked|selected)\b|brand-secondary/i;
+let mirrorUidSeq = 0;
+const nextMirrorUid = () => `${Date.now().toString(36)}-${++mirrorUidSeq}-${Math.random().toString(36).slice(2, 6)}`;
+
+function isInOutcomeExcludedArea(el) {
+  return !!(el && el.closest && el.closest(
+    '[data-op="fast-betslip-container"], [data-op="betslip-bottom-sheet"], .m-betslip, .m-bet-slip, [class*="betslip" i], .m-keyboard, .stake-keyboard, [class*="stake" i]'
+  ));
+}
+
+function findStrictOutcomeContainer(el) {
+  if (!el || el.nodeType !== 1 || isInOutcomeExcludedArea(el)) return null;
+  const direct = el.closest('[data-op="outcome-btn"], .m-outcome, [class*="outcome-btn" i], [class*="outcome-item" i]');
+  if (direct && !isInOutcomeExcludedArea(direct)) return direct;
+
+  let hit = null;
+  for (let cur = el, d = 0; cur && cur !== document.body && d < 6; cur = cur.parentElement, d++) {
+    const cls = typeof cur.className === 'string' ? cur.className : '';
+    const hasOutAttr = Array.from(cur.attributes || []).some((a) => /outcome/i.test(a.name));
+    if (!OUTCOME_CLS_RE.test(cls) && !hasOutAttr) continue;
+    const oddsMatches = (cur.textContent || '').match(OUTCOME_ODDS_RE) || [];
+    if (oddsMatches.length === 1 && cur.children.length < 8) {
+      hit = cur;
+    } else if (oddsMatches.length > 1) {
+      break;
+    }
+  }
+  if (hit && isInOutcomeExcludedArea(hit)) return null;
+  return hit;
+}
+
+function isOutcomeSelected(el) {
+  if (!el || el.nodeType !== 1) return false;
+  const hasSel = (node) => {
+    const cls = typeof node.className === 'string' ? node.className : '';
+    return OUTCOME_SELECTED_RE.test(cls) ||
+      node.getAttribute?.('aria-pressed') === 'true' ||
+      node.getAttribute?.('aria-checked') === 'true' ||
+      node.getAttribute?.('aria-selected') === 'true';
+  };
+  if (hasSel(el)) return true;
+  for (const child of el.querySelectorAll('*')) {
+    if (hasSel(child)) return true;
+  }
+  return false;
+}
+
+function extractOutcomeAncestorIds(el) {
+  const ids = [];
+  for (let cur = el, d = 0; cur && cur !== document.body && d < 8; cur = cur.parentElement, d++) {
+    for (const a of Array.from(cur.attributes || [])) {
+      if (MIRROR_ENTITY_ATTR_RE.test(a.name) && a.value && a.value.length < 80) {
+        ids.push([d, cur.tagName.toLowerCase(), a.name, a.value]);
+      }
+    }
+  }
+  return ids;
+}
+
+function findOutcomeByAncestorIds(sem) {
+  const ids = sem && Array.isArray(sem.ancestorIds) ? sem.ancestorIds : [];
+  if (!ids.length) return null;
+
+  const directIds = ids.filter(([depth]) => depth === 0);
+  if (directIds.length) {
+    try {
+      const sel = directIds[0][1] + directIds.map(([, , attr, val]) => attrEqSel(attr, val)).join('');
+      const directMatches = Array.from(document.querySelectorAll(sel)).filter((b) => isElementVisible(b) && !isInOutcomeExcludedArea(b));
+      if (directMatches.length === 1) return directMatches[0];
+    } catch (_) {}
+  }
+
+  // Narrow all outcome buttons matching deeper ancestor data-* attributes
+  let pool = Array.from(document.querySelectorAll(
+    '[data-op="outcome-btn"], .m-outcome, [class*="m-outcome"], [class*="outcome-btn" i], [class*="outcome-item" i]'
+  )).filter((b) => isElementVisible(b) && !isInOutcomeExcludedArea(b));
+
+  if (!pool.length) return null;
+  pool = pool.filter((btn) => ids.every(([depth, , attr, val]) => {
+    let anc = btn;
+    for (let i = 0; i < depth && anc; i++) anc = anc.parentElement;
+    return anc && anc.getAttribute && anc.getAttribute(attr) === val;
+  }));
+
+  if (pool.length === 1) return pool[0];
+  if (pool.length > 1 && sem.outcomeLabel) {
+    const want = normalizeOutcomeLabel(sem.outcomeLabel);
+    const labelHits = pool.filter((b) => {
+      const lbl = normalizeOutcomeLabel(String(b.textContent || '').replace(OUTCOME_ODDS_RE, ' '));
+      return lbl === want || extractOutcomeDetails(b, null).label === want;
+    });
+    if (labelHits.length === 1) return labelHits[0];
+    if (labelHits.length > 1 && sem.outcomeIndex != null && labelHits[sem.outcomeIndex]) return labelHits[sem.outcomeIndex];
   }
   return null;
 }
@@ -1936,18 +2211,51 @@ document.addEventListener('click', (e) => {
     '[data-op="betslip-confirm-to-pay-modal"], [class*="mask" i], [class*="modal" i], [class*="popup" i], [class*="dialog" i], [class*="confirm" i], [class*="sheet" i]'
   );
 
+  const semantic = extractSemantic(target, clickable);
+  const targetEl = clickable || target;
+
   send({
     type: 'click',
     selector: cssPath(target),
     smartSelector: uniqueSelector(target),
     clickableSelector: clickable ? uniqueSelector(clickable) : null,
-    semantic: extractSemantic(target, clickable),
+    descriptor: describeElement(targetEl),
+    semantic,
     isFormInput: isInput,
     isStakeField: isStakeField,
     isInsideModal: isInsideModal,
     rx: e.clientX / window.innerWidth,
     ry: e.clientY / window.innerHeight,
   });
+
+  // 350ms outcome state reconciliation: if lead state didn't flip or reverted, emit corrective want
+  if (semantic && semantic.kind === 'outcome') {
+    const outEl = findStrictOutcomeContainer(target);
+    if (outEl) {
+      setTimeout(() => {
+        try {
+          const liveEl = outEl.isConnected ? outEl : findStrictOutcomeContainer(target);
+          if (!liveEl) return;
+          const actualSelected = isOutcomeSelected(liveEl);
+          if (actualSelected !== semantic.want) {
+            send({
+              type: 'click',
+              selector: cssPath(target),
+              smartSelector: uniqueSelector(target),
+              clickableSelector: clickable ? uniqueSelector(clickable) : null,
+              descriptor: describeElement(targetEl),
+              semantic: { ...semantic, uid: nextMirrorUid(), want: actualSelected, reconcile: true },
+              isFormInput: false,
+              isStakeField: false,
+              isInsideModal: false,
+              rx: e.clientX / window.innerWidth,
+              ry: e.clientY / window.innerHeight,
+            });
+          }
+        } catch (_) {}
+      }, 350);
+    }
+  }
 }, true);
 
 let scrollQueued = false;
@@ -2014,10 +2322,10 @@ function findTarget(m) {
     return findCrossSiteTarget(m);
   }
 
-  // 0. Outcomes (odds selections): STRICT semantic matching ONLY.
+  // 0. Outcomes (odds selections): STRICT semantic + ancestor ID matching ONLY.
   // NEVER fall through to CSS selectors, clickableSelector, or coordinates for outcomes!
   if (m.semantic && m.semantic.kind === 'outcome') {
-    const outcomeEl = findCrossSiteTarget(m);
+    const outcomeEl = findOutcomeByAncestorIds(m.semantic) || findCrossSiteTarget(m);
     if (!outcomeEl) {
       console.warn(`[MirrorReplay] Skipped outcome replay: no confident match for "${m.semantic.market || 'Unknown Market'}: ${m.semantic.outcomeLabel || 'Unknown Outcome'}"`);
     }
@@ -2040,7 +2348,12 @@ function findTarget(m) {
     try { el = document.querySelector(m.smartSelector); } catch (_) {}
   }
 
-  // 1b. Same-site country-agnostic semantic fallback across cards / country variants
+  // 1b. Multi-stage structural descriptor resolver (stable classes, regex ID attrs, row context, text)
+  if (!el && m.descriptor) {
+    el = resolveDescriptor(m.descriptor);
+  }
+
+  // 1c. Same-site country-agnostic semantic fallback across cards / country variants
   if (!el && m.semantic) {
     el = findCrossSiteTarget(m);
   }
@@ -2074,16 +2387,47 @@ function findTarget(m) {
   return el;
 }
 
-async function findTargetWithRetry(m, maxMs = 300) {
+async function findTargetWithRetry(m, maxMs = 450) {
   let el = findTarget(m);
   if (el) return el;
   const t0 = Date.now();
+  let tries = 0;
   while (Date.now() - t0 < maxMs) {
-    await new Promise(r => setTimeout(r, 20));
+    tries++;
+    await new Promise(r => setTimeout(r, tries < 5 ? 35 : 85));
     el = findTarget(m);
     if (el) return el;
   }
   return null;
+}
+
+const seenMirrorUids = new Set();
+function dispatchMirrorClickSequence(targetToClick, x, y) {
+  const mouseOpts = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+    screenX: x,
+    screenY: y,
+    button: 0,
+    buttons: 1,
+    pointerType: 'touch',
+    isPrimary: true
+  };
+  try {
+    if (typeof Touch !== 'undefined' && typeof TouchEvent !== 'undefined') {
+      const touch = new Touch({ identifier: Date.now(), target: targetToClick, clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y });
+      targetToClick.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, view: window, touches: [touch], targetTouches: [touch], changedTouches: [touch] }));
+      targetToClick.dispatchEvent(new TouchEvent('touchend',   { bubbles: true, cancelable: true, view: window, touches: [], targetTouches: [], changedTouches: [touch] }));
+    }
+  } catch (_) {}
+  targetToClick.dispatchEvent(new PointerEvent('pointerdown', mouseOpts));
+  targetToClick.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+  targetToClick.dispatchEvent(new PointerEvent('pointerup', mouseOpts));
+  targetToClick.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
+  targetToClick.click();
 }
 
 function findScrollableElement(selector) {
@@ -2130,11 +2474,35 @@ ipcRenderer.on('mirror-replay', async (_e, m) => {
   try {
     const crossSite = !!(m.srcSite && m.srcSite !== currentSite());
     if (m.type === 'click') {
-      const el = await findTargetWithRetry(m, 300);
+      if (m.semantic?.action === 'place-bet') {
+        // SAFETY: Never place bets or auto-confirm via mirror replay!
+        console.warn('[SAFETY] Suppressed mirror-replay attempt to trigger place-bet action on follower pane');
+        return;
+      }
+
+      if (m.semantic?.uid) {
+        if (seenMirrorUids.has(m.semantic.uid)) return;
+        seenMirrorUids.add(m.semantic.uid);
+        if (seenMirrorUids.size > 300) {
+          seenMirrorUids.delete(seenMirrorUids.values().next().value);
+        }
+      }
+
+      const isRichSem = m.semantic && (m.semantic.kind === 'outcome' || m.semantic.kind === 'market-header' || m.semantic.kind === 'market-tab');
+      const el = await findTargetWithRetry(m, isRichSem ? 1000 : 450);
 
       if (el) {
-        const clickable = el.closest ? el.closest(CLICKABLE_REPLAY_SEL) : null;
+        const clickable = (m.semantic?.kind === 'outcome')
+          ? (findStrictOutcomeContainer(el) || el)
+          : (el.closest ? el.closest(CLICKABLE_REPLAY_SEL) : null);
         const targetToClick = clickable || el;
+
+        // Idempotency check for outcomes: never toggle off a pane that already matches lead desired state
+        if (m.semantic?.kind === 'outcome' && typeof m.semantic.want === 'boolean') {
+          if (isOutcomeSelected(targetToClick) === m.semantic.want) {
+            return;
+          }
+        }
 
         const isOverlay = targetToClick.matches && targetToClick.matches(
           'body, html, [class*="mask" i], [class*="overlay" i], [class*="backdrop" i], [class*="dialog" i], [class*="modal" i]'
@@ -2143,46 +2511,30 @@ ipcRenderer.on('mirror-replay', async (_e, m) => {
           try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (_) {}
         }
         if (typeof el.focus === 'function' && !isOverlay) {
-          try { el.focus(); } catch (_) {}
+          try { el.focus({ preventScroll: true }); } catch (_) {}
         }
 
-        const rect = targetToClick.getBoundingClientRect ? targetToClick.getBoundingClientRect() : null;
-        const hasValidRect = rect && rect.width > 0 && rect.height > 0 && !isOverlay;
-        const x = hasValidRect
-          ? Math.round(rect.left + rect.width / 2)
-          : (m.rx != null ? Math.round(m.rx * window.innerWidth) : 0);
-        const y = hasValidRect
-          ? Math.round(rect.top + rect.height / 2)
-          : (m.ry != null ? Math.round(m.ry * window.innerHeight) : 0);
-
-        const mouseOpts = {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: x,
-          clientY: y,
-          screenX: x,
-          screenY: y,
-          button: 0,
-          buttons: 1,
-          pointerType: 'touch',
-          isPrimary: true
+        const getClickCoords = (node) => {
+          const rect = node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+          const hasValidRect = rect && rect.width > 0 && rect.height > 0 && !isOverlay;
+          return {
+            x: hasValidRect ? Math.round(rect.left + rect.width / 2) : (m.rx != null ? Math.round(m.rx * window.innerWidth) : 0),
+            y: hasValidRect ? Math.round(rect.top + rect.height / 2) : (m.ry != null ? Math.round(m.ry * window.innerHeight) : 0),
+          };
         };
 
-        // Dispatch TouchEvent for mobile touch handlers (e.g. SportyBet/Football mobile sheet & mask tap listeners)
-        try {
-          if (typeof Touch !== 'undefined' && typeof TouchEvent !== 'undefined') {
-            const touch = new Touch({ identifier: Date.now(), target: targetToClick, clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y });
-            targetToClick.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, view: window, touches: [touch], targetTouches: [touch], changedTouches: [touch] }));
-            targetToClick.dispatchEvent(new TouchEvent('touchend',   { bubbles: true, cancelable: true, view: window, touches: [], targetTouches: [], changedTouches: [touch] }));
-          }
-        } catch (_) {}
+        const pt = getClickCoords(targetToClick);
+        dispatchMirrorClickSequence(targetToClick, pt.x, pt.y);
 
-        targetToClick.dispatchEvent(new PointerEvent('pointerdown', mouseOpts));
-        targetToClick.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
-        targetToClick.dispatchEvent(new PointerEvent('pointerup', mouseOpts));
-        targetToClick.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
-        targetToClick.click();
+        // Verify state flip on outcomes after short settle; retry once if absorbed by SPA focus
+        if (m.semantic?.kind === 'outcome' && typeof m.semantic.want === 'boolean') {
+          await new Promise((r) => setTimeout(r, 60));
+          const live = targetToClick.isConnected ? targetToClick : findTarget(m);
+          if (live && isOutcomeSelected(live) !== m.semantic.want) {
+            const retryPt = getClickCoords(live);
+            dispatchMirrorClickSequence(live, retryPt.x, retryPt.y);
+          }
+        }
 
         // Match navigation Nuxt router / URL fallback
         if (m.semantic?.kind === 'match-nav' && m.semantic?.hrefPath) {
@@ -2201,12 +2553,6 @@ ipcRenderer.on('mirror-replay', async (_e, m) => {
               try { location.href = m.semantic.hrefPath; } catch (_) {}
             }
           }, 120);
-        }
-
-        if (m.semantic?.action === 'place-bet') {
-          // SAFETY: Never place bets or auto-confirm via mirror replay!
-          console.warn('[SAFETY] Suppressed mirror-replay attempt to trigger place-bet action on follower pane');
-          return;
         } else if (m.semantic?.action === 'open-betslip') {
           triggerElementAction(targetToClick);
         }
@@ -2341,3 +2687,16 @@ document.addEventListener('click', (e) => {
     sample: String(raw).trim().slice(0, 40),
   });
 }, true);
+
+if (typeof module === 'object' && module.exports) {
+  module.exports = {
+    describeElement,
+    resolveDescriptor,
+    findStrictOutcomeContainer,
+    isOutcomeSelected,
+    extractOutcomeAncestorIds,
+    findOutcomeByAncestorIds,
+    extractSemantic,
+    findTarget,
+  };
+}

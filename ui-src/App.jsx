@@ -121,6 +121,10 @@ export default function App() {
     ...savedJson('betanoCfg', DEFAULT_BETANO_CFG),
     open: false,
   }));
+  const [monitorListenerConfig, setMonitorListenerConfig] = useState(() =>
+    savedJson('monitorListenerCfg', { goalBetAction: 'place_confirm', autoCashoutOnDrop: true })
+  );
+  const [monitorWatchStatus, setMonitorWatchStatus] = useState(null);
   const [cashoutConfig, setCashoutConfig] = useState(() => savedJson('cashoutCfg', DEFAULT_CASHOUT_CFG));
   const [balanceAwareStake, setBalanceAwareStake] = useState(() => saved('balanceAware', '1') !== '0');
 
@@ -358,6 +362,18 @@ export default function App() {
         setBetanoConfig((prev) => ({ ...prev, ...s.monitorConfig }));
         setBetanoOpen(!!s.monitorConfig.open);
       }
+      if (s.monitorListenerConfig) {
+        setMonitorListenerConfig((prev) => {
+          const next = { ...prev, ...s.monitorListenerConfig };
+          localStorage.setItem('ui:monitorListenerCfg', JSON.stringify(next));
+          return next;
+        });
+      }
+      if (window.api.getMonitorWatchState) {
+        window.api.getMonitorWatchState().then((ws) => {
+          if (ws && typeof ws === 'object') setMonitorWatchStatus(ws);
+        }).catch(() => {});
+      }
       if (s.cashoutConfig) {
         setCashoutConfig(s.cashoutConfig);
         window.api.setCashoutConfig(s.cashoutConfig).catch(() => {});
@@ -444,6 +460,20 @@ export default function App() {
         setBetanoOpen(!!cfg.open);
         const { open: _o, ...prefs } = cfg;
         localStorage.setItem('ui:betanoCfg', JSON.stringify(prefs));
+      }),
+      window.api.onMonitorWatchStatus && window.api.onMonitorWatchStatus((ws) => {
+        if (!ws || typeof ws !== 'object') return;
+        setMonitorWatchStatus(ws);
+        if (ws.goalBetAction || typeof ws.autoCashoutOnDrop === 'boolean') {
+          setMonitorListenerConfig((prev) => {
+            const next = {
+              goalBetAction: ws.goalBetAction || prev.goalBetAction,
+              autoCashoutOnDrop: typeof ws.autoCashoutOnDrop === 'boolean' ? ws.autoCashoutOnDrop : prev.autoCashoutOnDrop,
+            };
+            localStorage.setItem('ui:monitorListenerCfg', JSON.stringify(next));
+            return next;
+          });
+        }
       }),
       window.api.onStakeSynced && window.api.onStakeSynced((stk) => {
         setProfitRows((prev) => {
@@ -881,6 +911,26 @@ export default function App() {
     }
   };
 
+  const handleToggleMonitorWatch = async () => {
+    if (!window.api.toggleMonitorWatch) return;
+    const res = await window.api.toggleMonitorWatch();
+    if (res && typeof res === 'object') {
+      setMonitorWatchStatus((prev) => ({ ...(prev || {}), ...res }));
+    }
+  };
+
+  const handleUpdateMonitorListenerConfig = async (patch) => {
+    if (!window.api.setMonitorListenerConfig) return;
+    const updated = await window.api.setMonitorListenerConfig(patch);
+    if (updated && typeof updated === 'object') {
+      setMonitorListenerConfig((prev) => {
+        const next = { ...prev, ...updated };
+        localStorage.setItem('ui:monitorListenerCfg', JSON.stringify(next));
+        return next;
+      });
+    }
+  };
+
   const handleZoomBetano = async (action) => {
     const updated = await window.api.zoomMonitor(action);
     if (updated && typeof updated === 'object') {
@@ -990,6 +1040,8 @@ export default function App() {
             monitorConfig={betanoConfig}
             betanoOpen={betanoOpen}
             onToggleBetano={handleToggleBetano}
+            monitorWatchStatus={monitorWatchStatus}
+            onToggleMonitorWatch={handleToggleMonitorWatch}
             onFocusPane={(idx) => window.api.focusPane(idx)}
             onSetPaneProfile={handleSetPaneProfile}
             onReloadPane={handleReloadPane}
@@ -1079,6 +1131,8 @@ export default function App() {
           onZoomBetano={handleZoomBetano}
           betanoOpen={betanoOpen}
           onToggleBetano={handleToggleBetano}
+          monitorListenerConfig={monitorListenerConfig}
+          onUpdateMonitorListenerConfig={handleUpdateMonitorListenerConfig}
           cashoutConfig={cashoutConfig}
           onUpdateCashoutConfig={handleUpdateCashoutConfig}
           logs={logs}

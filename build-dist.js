@@ -180,6 +180,7 @@ async function main() {
   await compileProtectedMain('license.js', electronPath);
   await compileProtectedMain('site-adapters.js', electronPath);
   await compileProtectedMain('updater.js', electronPath);
+  await compileProtectedMain('betano-listener.js', electronPath);
 
   fs.writeFileSync(
     path.join(STAGE, 'main.js'),
@@ -201,8 +202,13 @@ async function main() {
     "'use strict';\nmodule.exports = require('./updater.jsc');\n",
     'utf8'
   );
+  fs.writeFileSync(
+    path.join(STAGE, 'betano-listener.js'),
+    "'use strict';\nmodule.exports = require('./betano-listener.jsc');\n",
+    'utf8'
+  );
 
-  for (const preload of ['ui-preload.js', 'view-preload.js']) {
+  for (const preload of ['ui-preload.js', 'view-preload.js', 'monitor-preload.js']) {
     const src = fs.readFileSync(path.join(ROOT, preload), 'utf8');
     fs.writeFileSync(path.join(STAGE, preload), obfuscateBrowserJs(src), 'utf8');
   }
@@ -300,13 +306,16 @@ async function main() {
         `## QuestSync ${versionTag}`,
         '',
         '### What\'s New & Updated',
-        '- **Release Splash Screen**: Clean modern overview of all features, hotkeys, and v1.1.0 updates on startup and via the top-nav version badge.',
-        '- **1-Click & 2-Click Single Bet Mode**: State-based Spacebar execution mode in Settings (1-Click places & confirms; 2-Click separates Place Bet and Confirm).',
-        '- **Auto-Accept Odds & Prompt Guard**: Top-nav toggle silently accepts idle betslip odds changes (never triggering accidental bets) and dismisses SportyBet\'s native prompt.',
+        '- **Betano Live-Score Listener & VAR Cashout**: Sleek glass "Watch this match" overlay on Betano match pages auto-triggers bets on your pre-selected pane games on goals, or runs 2-step Cashout + Confirm & re-arms when VAR drops the score.',
+        '- **Redesigned Header & Single-Row Workspace Toolbar**: 4-zone header with unified Mirror / Auto-Accept / 1-Click·2-Click toggles, read-only IDLE/volume telemetry, single-row workspace toolbar, and Panes 1–8 in Settings.',
+        '- **Two-Step Cashout All & Open Bets Sync**: Reliable `Alt+C` / VAR cashout directly matching SportyBet `openbet__cashout_btn` → `open_bets__cashout_confirm` with XHR readiness checks and blocked-nav URL fallback.',
+        '- **Idempotent Structural Mirror Clicking**: Upgraded cross-pane mirror engine with strict single-odds outcome boundaries, ancestor entity IDs, desired-state parity guards, 350ms lead reconciliation, and SPA/flip retries.',
+        '- **Release Splash Screen**: Clean modern overview of all features, hotkeys, and v1.1.0 updates on startup and via the top-nav version link.',
+        '- **1-Click & 2-Click Single Bet Mode**: Switch between 1-Click (Place → Confirm) and state-based 2-Click (Space 1 places, Space 2 confirms) in the top mode cluster or Settings.',
+        '- **Auto-Accept Odds & Prompt Guard**: Toggle silently accepts idle betslip odds changes (never triggering accidental bets) and dismisses SportyBet\'s native prompt.',
         '- **Zero-Delay Instant Enter Manual Rebet**: Pre-warmed microtask MutationObserver catches Rebet in <0.5ms with polling fallback.',
         '- **Confirm-Safe Auto-Stake Updates**: Odds shifts while on Confirm update reactive store/DOM stakes silently without opening/closing keypad or dropping Confirm.',
-        '- **Spacebar Reliability Fix**: Prevented Spacebar from scrolling market options when the betslip stake wrapper is open or while stakes sync.',
-        '- **Smooth Scroll Sync & Leaner Engine**: Synchronized vertical pane scrolling without echo loops, rapid market-switch retries, strict safety guards, and dead-code cleanup.',
+        '- **Spacebar Reliability & Smooth Scroll Sync**: Fixed Spacebar scrolling market options during betslip edits, synchronized pane scroll without echo loops, and kept strict safety guards.',
       ].join('\n'),
     ];
     const pubRes = spawnSync('gh', ghArgs, { cwd: ROOT, stdio: 'inherit' });
