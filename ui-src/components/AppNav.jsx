@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutGrid, Users, SlidersHorizontal, Zap, BookOpen, ArrowDownCircle, Sparkles } from 'lucide-react';
+import { LayoutGrid, Users, SlidersHorizontal, Zap, BookOpen, ArrowDownCircle } from 'lucide-react';
 
 export default function AppNav({
   currentRoute = 'software',
@@ -22,29 +22,28 @@ export default function AppNav({
   onInstallUpdate,
 }) {
   const isAttacking = !!autoRebetState?.running;
+  const isTwoClick = singleBetClickMode === '2-click';
 
   return (
     <nav className="app-nav-bar" role="navigation" aria-label="Main Navigation">
-      {/* Brand & Identity */}
+      {/* Zone A: Brand Wordmark + Subtle Version + Route Navigation */}
       <div className="nav-brand-section">
         <span className="nav-brand-title">QuestSync</span>
         <span className="nav-brand-badge">PRO</span>
         {onOpenSplash && (
           <button
             type="button"
-            className="nav-version-pill"
+            className="nav-version-link"
             onClick={onOpenSplash}
-            title={`What's New & Features in QuestSync v${appVersion}`}
+            title={`View Release Notes & Features (QuestSync v${appVersion})`}
           >
-            <Sparkles size={10} />
-            <span>v{appVersion}</span>
+            v{appVersion}
           </button>
         )}
       </div>
 
       <div className="nav-divider" />
 
-      {/* Primary Route Navigation Tabs */}
       <div className="nav-routes-group">
         <button
           type="button"
@@ -52,7 +51,7 @@ export default function AppNav({
           onClick={() => onNavigate('software')}
           title="Panes Workspace (Main Betting Grid)"
         >
-          <LayoutGrid size={14} className="nav-tab-icon" />
+          <LayoutGrid size={13} className="nav-tab-icon" />
           <span>Software</span>
         </button>
 
@@ -62,7 +61,7 @@ export default function AppNav({
           onClick={() => onNavigate('accounts')}
           title="Account Management & Logins"
         >
-          <Users size={14} className="nav-tab-icon" />
+          <Users size={13} className="nav-tab-icon" />
           <span>Accounts</span>
         </button>
 
@@ -72,109 +71,101 @@ export default function AppNav({
           onClick={() => onNavigate('settings')}
           title="Application Settings & Parameters"
         >
-          <SlidersHorizontal size={14} className="nav-tab-icon" />
+          <SlidersHorizontal size={13} className="nav-tab-icon" />
           <span>Settings</span>
         </button>
 
         <button
           type="button"
-          className="nav-tab-btn"
+          className="nav-tab-btn is-ghost"
           onClick={onOpenGuide}
-          title="Operator Guide & How to Use (Quick Start)"
+          title="Operator Guide & Quick Start"
         >
-          <BookOpen size={14} className="nav-tab-icon" />
+          <BookOpen size={13} className="nav-tab-icon" />
           <span>Guide</span>
         </button>
       </div>
 
-      {/* Center Ticker / Status Message */}
+      {/* Zone B: Center Status Ticker */}
       <div className="nav-ticker-section" title={statusMsg}>
         <span className="nav-ticker-text">{statusMsg || 'Ready'}</span>
       </div>
 
-      {/* Right System Indicators & Metrics */}
-      <div className="nav-meta-section">
-        {/* In-App Update Downloaded Notification */}
+      {/* Zone C + D: Mode Controls Cluster & Session Telemetry Cluster */}
+      <div className="nav-right-clusters">
         {updateStatus?.status === 'downloaded' && (
           <button
             type="button"
-            className="nav-badge nav-badge-update-ready"
+            className="nav-update-action"
             onClick={onInstallUpdate}
             title={`QuestSync v${updateStatus.version || ''} downloaded. Click to restart and apply update now.`}
           >
-            <ArrowDownCircle size={12} className="nav-pulse-icon" />
-            <span>Update v{updateStatus.version || ''} Ready · Restart</span>
+            <ArrowDownCircle size={12} />
+            <span>Restart v{updateStatus.version || ''}</span>
           </button>
         )}
         {updateStatus?.status === 'downloading' && (
-          <span className="nav-badge nav-badge-muted" title={`Downloading update v${updateStatus.version || ''}: ${updateStatus.percent || 0}%`}>
-            <span>Update {updateStatus.percent || 0}%</span>
+          <span className="nav-update-progress" title={`Downloading update v${updateStatus.version || ''}: ${updateStatus.percent || 0}%`}>
+            Update {updateStatus.percent || 0}%
           </span>
         )}
 
-        {/* Rapid Attack State Pill */}
-        {isAttacking ? (
-          <span className="nav-badge nav-badge-active" title="Rapid Attack Active">
-            <Zap size={11} className="nav-pulse-icon" />
-            <span>Cycle {autoRebetState.cycle}/{autoRebetState.target}</span>
+        {/* Zone C: Unified Live Mode Cluster (Mirror, Auto-Accept, Single Bet Click Mode) */}
+        <div className="nav-mode-cluster" role="group" aria-label="Live Mode Toggles">
+          <button
+            type="button"
+            onClick={onToggleMirror}
+            className={`mode-pill ${mirror ? 'is-on' : ''}`}
+            title={`Click Mirroring is ${mirror ? 'ON (Click to pause)' : 'OFF (Click to resume)'}`}
+            aria-pressed={!!mirror}
+          >
+            <span className="mode-dot" />
+            <span>Mirror</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleAutoAcceptOdds}
+            className={`mode-pill ${autoAcceptOdds ? 'is-on is-salient' : ''}`}
+            title={`Auto-Accept Odds Changes is ${autoAcceptOdds ? 'ON (Silently updates idle slip odds — caution during Rapid Attack)' : 'OFF (Manual accept required)'}`}
+            aria-pressed={!!autoAcceptOdds}
+          >
+            <span className="mode-dot" />
+            <span>Auto-Accept</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={autoRebetOnSpace}
+            onClick={onToggleSingleBetClickMode}
+            className={`mode-pill ${!autoRebetOnSpace && isTwoClick ? 'is-on' : ''}`}
+            title={
+              autoRebetOnSpace
+                ? '1-Click / 2-Click applies only in Single Bet mode (currently set to Rapid Attack)'
+                : isTwoClick
+                  ? 'Single Bet 2-Click ON (Space 1 = Place Bet, Space 2 = Confirm). Click to switch to 1-Click.'
+                  : 'Single Bet 1-Click (One Spacebar press places & confirms). Click to switch to 2-Click.'
+            }
+            aria-pressed={!autoRebetOnSpace && isTwoClick}
+          >
+            <span className="mode-dot" />
+            <span>{isTwoClick ? '2-Click' : '1-Click'}</span>
+          </button>
+        </div>
+
+        {/* Zone D: Unified Read-Only Session Telemetry (State + Daily Volume) */}
+        <div className="nav-telemetry-cluster" title={isAttacking ? `Rapid Attack running cycle ${autoRebetState.cycle}/${autoRebetState.target}` : `System idle · ${todayBets} bets placed today (₦${todayTotal})`}>
+          <span className={`telemetry-state ${isAttacking ? 'is-live' : ''}`}>
+            {isAttacking ? <Zap size={10} className="telemetry-live-icon" /> : <span className="telemetry-dot" />}
+            <span>{isAttacking ? `${autoRebetState.cycle}/${autoRebetState.target}` : 'IDLE'}</span>
           </span>
-        ) : (
-          <span className="nav-badge nav-badge-idle" title="System Idle">
-            IDLE
+          <span className="telemetry-sep" aria-hidden="true" />
+          <span className="telemetry-volume">
+            <span className="telemetry-num">{todayBets}</span>
+            <span className="telemetry-unit">bets</span>
+            <span className="telemetry-mid">·</span>
+            <span className="telemetry-num">₦{todayTotal}</span>
           </span>
-        )}
-
-        {/* Mirroring Indicator (One-Click Toggle) */}
-        <button
-          type="button"
-          onClick={onToggleMirror}
-          className={`nav-badge nav-badge-clickable ${mirror ? 'nav-badge-mirror-on' : 'nav-badge-muted'}`}
-          title={`Click Mirroring is ${mirror ? 'ACTIVE (Click to Pause)' : 'PAUSED (Click to Enable)'}`}
-          aria-label={`Toggle click mirroring. Current status: ${mirror ? 'ON' : 'OFF'}`}
-        >
-          Mirror {mirror ? 'ON' : 'OFF'}
-        </button>
-
-        {/* Auto-Accept Odds Changes Toggle */}
-        <button
-          type="button"
-          onClick={onToggleAutoAcceptOdds}
-          className={`nav-badge nav-badge-clickable ${autoAcceptOdds ? 'nav-badge-auto-accept-on' : 'nav-badge-muted'}`}
-          title={`Auto-Accept Odds Changes is ${autoAcceptOdds ? 'ACTIVE (Updates idle betslip odds automatically without placing bets)' : 'OFF (Manual click required)'}`}
-          aria-label={`Toggle Auto-Accept Odds. Current status: ${autoAcceptOdds ? 'ON' : 'OFF'}`}
-        >
-          Auto-Accept Odds {autoAcceptOdds ? 'ON' : 'OFF'}
-        </button>
-
-        {/* Single Bet 1-Click / 2-Click Toggle (active only when Single Bet mode is selected) */}
-        <button
-          type="button"
-          disabled={autoRebetOnSpace}
-          onClick={onToggleSingleBetClickMode}
-          className={`nav-badge nav-badge-clickable ${
-            autoRebetOnSpace
-              ? 'nav-badge-disabled'
-              : singleBetClickMode === '2-click'
-                ? 'nav-badge-two-click-on'
-                : 'nav-badge-one-click-on'
-          }`}
-          title={
-            autoRebetOnSpace
-              ? '1-Click / 2-Click applies only when Single Bet mode is selected (currently Rapid Attack in Settings)'
-              : singleBetClickMode === '2-click'
-                ? 'Single Bet 2-Click ON (Space 1 = Place Bet, Space 2 = Confirm). Click to switch to 1-Click.'
-                : 'Single Bet 1-Click ON (One Spacebar press places & confirms). Click to switch to 2-Click.'
-          }
-          aria-label={`Single Bet click mode: ${singleBetClickMode}. ${autoRebetOnSpace ? 'Disabled in Rapid Attack mode.' : 'Click to toggle between 1-Click and 2-Click.'}`}
-        >
-          <span className="nav-click-dot" />
-          <span>{singleBetClickMode === '2-click' ? '2-Click ON' : '1-Click'}</span>
-        </button>
-
-        {/* Daily Bets Volume */}
-        <div className="nav-metric-pill" title="Today's total bets placed and volume">
-          <span className="nav-metric-label">Today</span>
-          <span className="nav-metric-val">{todayBets} bets · ₦{todayTotal}</span>
         </div>
       </div>
     </nav>

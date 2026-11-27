@@ -94,7 +94,9 @@ export default function SoftwareToolbar({
           </button>
         </div>
 
-        {/* ─── Stake Inputs Group ─── */}
+        <div className="toolbar-zone-sep" aria-hidden="true" />
+
+        {/* ─── Zone 2: Target Profit & Stake Controls ─── */}
         <div className="toolbar-group stakes-group">
           <div
             className={`stat-chip ${hasGh ? 'highlight-gh' : ''}`}
@@ -128,11 +130,12 @@ export default function SoftwareToolbar({
 
           <button
             type="button"
-            className={`toggle-switch ${autoUpdate ? 'is-on' : ''}`}
+            className={`mode-pill mode-pill-boxed ${autoUpdate ? 'is-on' : ''}`}
             onClick={onToggleAutoUpdate}
             title="Automatically compute and write stakes into slips as odds update"
+            aria-pressed={!!autoUpdate}
           >
-            <span className="indicator" />
+            <span className="mode-dot" />
             <span>Auto Stake</span>
           </button>
 
@@ -147,7 +150,9 @@ export default function SoftwareToolbar({
           </button>
         </div>
 
-        {/* ─── Execution Controls Group ─── */}
+        <div className="toolbar-zone-sep" aria-hidden="true" />
+
+        {/* ─── Zone 3: Primary Execution Controls ─── */}
         <div className="toolbar-group execution-group">
           {isAttacking ? (
             <button
