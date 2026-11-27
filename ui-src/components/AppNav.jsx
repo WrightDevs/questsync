@@ -14,6 +14,9 @@ export default function AppNav({
   onToggleMirror,
   autoAcceptOdds = false,
   onToggleAutoAcceptOdds,
+  autoRebetOnSpace = true,
+  singleBetClickMode = '1-click',
+  onToggleSingleBetClickMode,
   statusMsg = '',
   updateStatus = { status: 'idle' },
   onInstallUpdate,
@@ -141,6 +144,31 @@ export default function AppNav({
           aria-label={`Toggle Auto-Accept Odds. Current status: ${autoAcceptOdds ? 'ON' : 'OFF'}`}
         >
           Auto-Accept Odds {autoAcceptOdds ? 'ON' : 'OFF'}
+        </button>
+
+        {/* Single Bet 1-Click / 2-Click Toggle (active only when Single Bet mode is selected) */}
+        <button
+          type="button"
+          disabled={autoRebetOnSpace}
+          onClick={onToggleSingleBetClickMode}
+          className={`nav-badge nav-badge-clickable ${
+            autoRebetOnSpace
+              ? 'nav-badge-disabled'
+              : singleBetClickMode === '2-click'
+                ? 'nav-badge-two-click-on'
+                : 'nav-badge-one-click-on'
+          }`}
+          title={
+            autoRebetOnSpace
+              ? '1-Click / 2-Click applies only when Single Bet mode is selected (currently Rapid Attack in Settings)'
+              : singleBetClickMode === '2-click'
+                ? 'Single Bet 2-Click ON (Space 1 = Place Bet, Space 2 = Confirm). Click to switch to 1-Click.'
+                : 'Single Bet 1-Click ON (One Spacebar press places & confirms). Click to switch to 2-Click.'
+          }
+          aria-label={`Single Bet click mode: ${singleBetClickMode}. ${autoRebetOnSpace ? 'Disabled in Rapid Attack mode.' : 'Click to toggle between 1-Click and 2-Click.'}`}
+        >
+          <span className="nav-click-dot" />
+          <span>{singleBetClickMode === '2-click' ? '2-Click ON' : '1-Click'}</span>
         </button>
 
         {/* Daily Bets Volume */}

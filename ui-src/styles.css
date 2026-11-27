@@ -227,6 +227,35 @@ body {
   border: 1px solid rgba(16, 185, 129, 0.35);
 }
 
+.nav-badge-two-click-on {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+}
+
+.nav-badge-one-click-on {
+  background: rgba(148, 163, 184, 0.1);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+}
+
+.nav-badge-disabled {
+  background: rgba(148, 163, 184, 0.04);
+  color: var(--text-disabled, #64748b);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.nav-click-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
 .nav-badge-muted {
   background: transparent;
   color: var(--text-muted);
@@ -240,13 +269,20 @@ body {
   font-family: inherit;
 }
 
-.nav-badge-clickable:hover {
+.nav-badge-clickable:hover:not(:disabled) {
   filter: brightness(1.22);
   transform: translateY(-0.5px);
 }
 
-.nav-badge-clickable:active {
+.nav-badge-clickable:active:not(:disabled) {
   transform: translateY(0.5px);
+}
+
+.nav-badge-clickable:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  filter: none;
+  transform: none;
 }
 
 .nav-badge-update-ready {

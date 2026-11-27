@@ -938,6 +938,11 @@ export default function App() {
         onToggleMirror={handleToggleMirror}
         autoAcceptOdds={autoAcceptOdds}
         onToggleAutoAcceptOdds={handleToggleAutoAcceptOdds}
+        autoRebetOnSpace={autoRebetOnSpace}
+        singleBetClickMode={singleBetClickMode}
+        onToggleSingleBetClickMode={() =>
+          handleSingleBetClickModeChange(singleBetClickMode === '2-click' ? '1-click' : '2-click')
+        }
         statusMsg={statusMsg}
         updateStatus={updateStatus}
         onInstallUpdate={handleInstallUpdate}
