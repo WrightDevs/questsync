@@ -18,8 +18,6 @@ export default function SoftwareToolbar({
   onLoadUrl,
   onBack,
   onReload,
-  count = 5,
-  onCountChange,
   hasGh = true,
   hasNg = true,
   targetGH = '200',
@@ -29,7 +27,6 @@ export default function SoftwareToolbar({
   autoUpdate = false,
   onToggleAutoUpdate,
   onSyncNow,
-  onMinStake,
   rebetActive = false,
   autoRebetState = { running: false, cycle: 0, target: 1 },
   autoRebetOnSpace = true,
@@ -97,23 +94,6 @@ export default function SoftwareToolbar({
           </button>
         </div>
 
-        {/* ─── Panes Selector Group ─── */}
-        <div className="toolbar-group panes-group">
-          <span className="group-label">Panes:</span>
-          <div className="seg-group">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-              <button
-                key={n}
-                type="button"
-                className={`seg-btn ${count === n ? 'active' : ''}`}
-                onClick={() => onCountChange(n)}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* ─── Stake Inputs Group ─── */}
         <div className="toolbar-group stakes-group">
           <div
@@ -164,15 +144,6 @@ export default function SoftwareToolbar({
           >
             <RotateCw size={12} />
             <span>Sync</span>
-          </button>
-
-          <button
-            type="button"
-            className="btn btn-action"
-            onClick={onMinStake}
-            title="Apply minimum stake across all panes (SB NG: ₦10, SB GH: GH₵0.1, FB: ₦1)"
-          >
-            <span>Min Stake</span>
           </button>
         </div>
 

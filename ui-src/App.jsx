@@ -963,8 +963,6 @@ export default function App() {
             onLoadUrl={handleLoadUrl}
             onBack={() => window.api.back(urlScope)}
             onReload={() => window.api.reload(urlScope)}
-            count={count}
-            onCountChange={handleCountChange}
             hasGh={hasGh}
             hasNg={hasNg}
             targetGH={targetGH}
@@ -1024,6 +1022,8 @@ export default function App() {
           onToggleWindowSync={handleToggleWindowSync}
           autoAlign={autoAlign}
           onToggleAutoAlign={handleToggleAutoAlign}
+          count={count}
+          onCountChange={handleCountChange}
           tileSize={tileSize}
           onTileSizeChange={handleTileSizeChange}
           layoutMode={layoutMode}

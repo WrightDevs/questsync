@@ -32,6 +32,8 @@ export default function SettingsPage({
   onToggleAutoAlign,
 
   // Layout
+  count = 5,
+  onCountChange,
   tileSize = 65,
   onTileSizeChange,
   layoutMode = 'row',
@@ -58,6 +60,7 @@ export default function SettingsPage({
   onToggleWhole,
   hotkeysEnabled = true,
   onToggleHotkeys,
+  onMinStake,
   oddsSel = '',
   stakeSel = '',
   onOddsSelChange,
@@ -223,6 +226,25 @@ export default function SettingsPage({
           </div>
 
           <div className="settings-rows-list">
+            <div className="settings-row">
+              <div className="row-info">
+                <span className="row-title">Active Betting Panes</span>
+                <span className="row-desc">Number of simultaneous SportyBet / Football.com account panes (1–8)</span>
+              </div>
+              <div className="seg-group">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`seg-btn ${count === n ? 'active' : ''}`}
+                    onClick={() => onCountChange?.(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="settings-row">
               <div className="row-info">
                 <span className="row-title">Tile Size / Scale</span>
@@ -511,6 +533,20 @@ export default function SettingsPage({
               >
                 <span className="indicator" />
                 <span>{whole ? 'Whole Only' : 'Decimals Allowed'}</span>
+              </button>
+            </div>
+
+            <div className="settings-row">
+              <div className="row-info">
+                <span className="row-title">Quick Minimum Stake</span>
+                <span className="row-desc">Write minimum stake into all active panes (SB NG: ₦10, SB GH: GH₵0.1, FB: ₦1)</span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                onClick={() => onMinStake?.()}
+              >
+                <span>Apply Min Stake</span>
               </button>
             </div>
 
